@@ -745,6 +745,13 @@ index e2b6338..fb881d6 100755
  # Support Preload install apks
  on property:persist.sys.storage_preload=1
      mount ext4 /dev/block/platform/sdio_emmc/by-name/HIDDEN /preload nosuid nodev ro barrier=1
+diff --git a/rootdir/etc/init.sc8830_ss.rc b/rootdir/etc/init.sc8830_ss.rc
+index 09dd05f..f435c05 100755
+--- a/rootdir/etc/init.sc8830_ss.rc
++++ b/rootdir/etc/init.sc8830_ss.rc
+@@ -1 +1 @@
+-import /init.j3xnlte.rc
++import /init.j1minivelte.rc
 diff --git a/sepolicy/charon.te b/sepolicy/charon.te
 new file mode 100644
 index 0000000..d6dbc50

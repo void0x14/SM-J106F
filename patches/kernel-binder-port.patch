@@ -1,6 +1,19 @@
 diff --git a/arch/arm/configs/j1minivelte_defconfig b/arch/arm/configs/j1minivelte_defconfig
+index 0016d68f..e6bfc298 100755
 --- a/arch/arm/configs/j1minivelte_defconfig
 +++ b/arch/arm/configs/j1minivelte_defconfig
+@@ -514,9 +514,9 @@ CONFIG_ATAGS=y
+ CONFIG_ZBOOT_ROM_TEXT=0x0
+ CONFIG_ZBOOT_ROM_BSS=0x0
+ # CONFIG_ARM_APPENDED_DTB is not set
+-CONFIG_CMDLINE="root=/dev/ram0 rw initrd=0x80e00000,0x1f243f console=ttyS1,115200n8 init=/init mem=128M"
++CONFIG_CMDLINE="androidboot.selinux=permissive androidboot.hardware=sc8830 console=ttyS1,115200n8"
+ CONFIG_CMDLINE_FROM_BOOTLOADER=y
+-# CONFIG_CMDLINE_EXTEND is not set
++CONFIG_CMDLINE_EXTEND=y
+ # CONFIG_CMDLINE_FORCE is not set
+ # CONFIG_XIP_KERNEL is not set
+ # CONFIG_KEXEC is not set
 @@ -2723,6 +2723,7 @@ CONFIG_STAGING=y
  #
  CONFIG_ANDROID=y
@@ -10,6 +23,7 @@ diff --git a/arch/arm/configs/j1minivelte_defconfig b/arch/arm/configs/j1minivel
  CONFIG_ASHMEM=y
  CONFIG_ANDROID_LOGGER=y
 diff --git a/drivers/staging/android/Kconfig b/drivers/staging/android/Kconfig
+index 29cd2b78..80cde6c7 100755
 --- a/drivers/staging/android/Kconfig
 +++ b/drivers/staging/android/Kconfig
 @@ -20,12 +20,36 @@ config ANDROID_BINDER_IPC
@@ -54,6 +68,7 @@ diff --git a/drivers/staging/android/Kconfig b/drivers/staging/android/Kconfig
  config ASHMEM
  	bool "Enable the Anonymous Shared Memory Subsystem"
 diff --git a/drivers/staging/android/Makefile b/drivers/staging/android/Makefile
+index 9227295d..56679d79 100755
 --- a/drivers/staging/android/Makefile
 +++ b/drivers/staging/android/Makefile
 @@ -3,7 +3,8 @@ ccflags-y += -I$(src)			# needed for trace events
@@ -67,6 +82,7 @@ diff --git a/drivers/staging/android/Makefile b/drivers/staging/android/Makefile
  obj-$(CONFIG_ANDROID_LOGGER)		+= logger.o
  obj-$(CONFIG_ANDROID_TIMED_OUTPUT)	+= timed_output.o
 diff --git a/drivers/staging/android/binder.c b/drivers/staging/android/binder.c
+index 6c646fdc..4093f316 100755
 --- a/drivers/staging/android/binder.c
 +++ b/drivers/staging/android/binder.c
 @@ -15,6 +15,40 @@
@@ -6811,6 +6827,7 @@ diff --git a/drivers/staging/android/binder.c b/drivers/staging/android/binder.c
  
 diff --git a/drivers/staging/android/binder_alloc.c b/drivers/staging/android/binder_alloc.c
 new file mode 100644
+index 00000000..550cfe27
 --- /dev/null
 +++ b/drivers/staging/android/binder_alloc.c
 @@ -0,0 +1,834 @@
@@ -7650,6 +7667,7 @@ new file mode 100644
 +
 diff --git a/drivers/staging/android/binder_alloc.h b/drivers/staging/android/binder_alloc.h
 new file mode 100644
+index 00000000..a46c0a36
 --- /dev/null
 +++ b/drivers/staging/android/binder_alloc.h
 @@ -0,0 +1,169 @@
@@ -7824,6 +7842,7 @@ new file mode 100644
 +
 diff --git a/drivers/staging/android/binder_alloc_selftest.c b/drivers/staging/android/binder_alloc_selftest.c
 new file mode 100644
+index 00000000..cccf670e
 --- /dev/null
 +++ b/drivers/staging/android/binder_alloc_selftest.c
 @@ -0,0 +1,271 @@
@@ -8099,6 +8118,7 @@ new file mode 100644
 +}
 +
 diff --git a/drivers/staging/android/binder_trace.h b/drivers/staging/android/binder_trace.h
+index 7f20f3dc..7967db16 100755
 --- a/drivers/staging/android/binder_trace.h
 +++ b/drivers/staging/android/binder_trace.h
 @@ -23,7 +23,8 @@
@@ -8208,6 +8228,7 @@ diff --git a/drivers/staging/android/binder_trace.h b/drivers/staging/android/bi
  	),
  	TP_printk("proc=%d allocate=%d offset=%zu size=%zu",
 diff --git a/drivers/staging/android/uapi/binder.h b/drivers/staging/android/uapi/binder.h
+index 4098c502..91c1ef7f 100755
 --- a/drivers/staging/android/uapi/binder.h
 +++ b/drivers/staging/android/uapi/binder.h
 @@ -32,11 +32,60 @@ enum {

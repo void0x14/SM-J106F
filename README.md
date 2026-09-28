@@ -177,6 +177,78 @@ mka bacon
 - `BOARD_KERNEL_PAGESIZE := 2048`, `BOARD_KERNEL_BASE := 0x00000000`
 - `TARGET_COPY_OUT_VENDOR` ayarlı değil → varsayılan `system/vendor`.
 
+## Önyükleme zinciri
+
+Init, cihaza özel rc dosyalarını `ro.hardware`'a göre okur. Bu değer
+`androidboot.hardware=sc8830` çekirdek cmdline'ında yoksa `ro.hardware=unknown`
+olur ve `/init.unknown.rc` aranır — cihaz açılmaz, hiçbir hata basılmaz.
+
+cmdline iki kaynaktan birleşir:
+
+| Kaynak | Nerede | LK ezer mi? |
+|---|---|---|
+| `CONFIG_CMDLINE` | derlenmiş `.config` | hayır |
+| DT `/chosen/bootargs` | `dt.img` | evet — `update_device_tree()` |
+
+Yalnızca DT'ye yazmak yetmez; LK `/chosen/bootargs`'ı ezdiğinde anahtar kaybolur.
+Bu yüzden anahtar `CONFIG_CMDLINE`'a konur ve modu `EXTEND` yapılır.
+
+`arch/arm/kernel/atags_parse.c:33` `default_command_line = CONFIG_CMDLINE`;
+ATAGS yolunda `parse_tag_cmdline()` (`:128-134`) `CMDLINE_EXTEND` ile tag cmdline'ı
+buna **ekler**. DT yolunda `drivers/of/fdt.c:744-760` `boot_command_line[0]==0`
+iken `CONFIG_CMDLINE`'ı yazıp DT bootargs'ı ekler. Yani `EXTEND` modunda
+`androidboot.hardware=sc8830` her iki yolda da cmdline'a girer.
+
+`init.cpp:473-487` `import_kernel_nv()` yalnızca `androidboot.*` anahtarlarını
+`ro.boot.*` yapar; `:511` `ro.hardware` eşlemesi `export_kernel_boot_props()`
+(`:1095`) içinde, `/init.rc` parse edilmeden (`:1140`) önce kurulur.
+
+Stok J106F da bu yolu kullanır (`kaynak/j106f-kernel/j1minive3g-dt_defconfig:525-528`),
+djeman'ın çalışan `j3xnlte_permissive_defconfig`'i de (`:553-556`):
+
+```
+CONFIG_CMDLINE="androidboot.selinux=permissive androidboot.hardware=sc8830 console=ttyS1,115200n8"
+# CONFIG_CMDLINE_FROM_BOOTLOADER is not set
+CONFIG_CMDLINE_EXTEND=y
+```
+
+Stok upstream defconfig'teki `initrd=0x80e00000,0x1f243f` ve `mem=128M` **kaldırıldı**:
+ramdisk yerleşimini LK kendisi yapar (`boot.img` başlığındaki adresler
+`BOARD_KERNEL_BASE`'e göreli, LK `ABOOT_FORCE_*` ile geçersiz kılar) ve `mem=`
+1 GB cihazda RAM'i kırpar.
+
+`scripts/boot-zinciri.py` bu zinciri üç halkada denetler: etkin cmdline →
+`ro.hardware`, rc `import` grafiği kapanışı, ve ramdisk yerleşimi. DT'deki
+`linux,initrd-start/end` **yer tutucudur** (668.178 B), gerçek ramdisk 3.801.972 B;
+LK bunu boot anında yamalar, bu yüzden pencere boyutu değil varlığı denetlenir.
+
+```
+$ python3 scripts/boot-zinciri.py out/target/product/j1minivelte
+  cmdline modu   : EXTEND
+  ro.hardware    : sc8830  (kaynak: CONFIG_CMDLINE)
+SONUC: onyukleme zinciri saglam
+```
+
+### Çekirdek sözleşmesi (Android 8.1 ↔ 3.10.65)
+
+Derlenen zImage Android 8.1'in istediği arayüzleri karşılıyor. Denetlenen her
+anahtar ya `=y`, ya djeman'ın çalışan çekirdeğinde de kapalı, ya da init/userspace
+tarafında sessizce tolere ediliyor:
+
+- binder/ashmem/logger/lowmemorykiller/selinux/cgroups/fuse/tmpfs/ext4/configfs — tam
+- `CONFIG_ANDROID_BINDER_DEVICES="binder,hwbinder,vndbinder"` — `kernel-binder-port.patch` ile
+- netd netfilter seti (quota2, u32, state, connmark, mark, limit, quota, socket) — tam
+- `PM_SLEEP`/`SUSPEND_FREEZER`/`WAKELOCK`/`EARLYSUSPEND`/`ANDROID_INTF_ALARM_DEV=y`;
+  libsuspend `/sys/power/wakeup_count` + `/sys/power/state` kullanır (`kernel/power/main.c:423-460,749`)
+- `NAMESPACES=n` **engel değil**: bu 3.10 ağacında `CLONE_NEWNS` `CONFIG_NAMESPACES`
+  ile kapılanmaz (`fs/namespace.c:2497` `copy_mnt_ns`, `kernel/nsproxy.c:126`
+  `copy_namespaces`); zygote'un `unshare(CLONE_NEWNS)` çağrısı geçer
+- `F2FS_FS=n` **engel değil**: `fstab` `auto`/`ext4`/`f2fs` listeler,
+  `fs_mgr::mount_with_alternatives()` (`fs_mgr.cpp:600-669`) geçersiz ext4 magic'ini
+  atlar; TWRP `recovery.fstab` zaten ext4-only
+- `UID_CPUTIME=n`, `CGROUP_SCHEDTUNE=n`, `POMEMR_RECLAIM=n`, `USB_HOST_NOTIFY` yok —
+  hepsi djeman'da da aynı; ilgili sysfs yazımları sessizce başarısız olur
+
 ## Google servisleri (Play Store, YouTube)
 
 LineageOS 15.1 Google servissiz gelir. ROM kurulduktan **sonra**, aynı TWRP
@@ -293,11 +365,13 @@ Flash öncesi mutlaka yedeklenmeli: `efs`, `l_modem`, `nvitem`, `prodnv`.
 
 `scripts/dogrula.sh` — 18/18. Çıktıların var olduğunu ve cihaza uygunluğunu sınar.
 
-Dört kanıt scripti, "derledim" ile "cihaza giden şey gerçekten o" arasındaki
+Kanıt scriptleri, "derledim" ile "cihaza giden şey gerçekten o" arasındaki
 boşluğu kapatır. Hiçbiri diğerinin yerine geçmez:
 
 | Script | Kanıtladığı |
 | --- | --- |
+| `boot-zinciri.py` | etkin cmdline → `ro.hardware`, rc import grafiği, ramdisk yerleşimi |
+| `init-denetle.py` | her init servis ikilisi yerinde + etiketli + domain geçişi tanımlı |
 | `kernel-kanit.sh` | zip içindeki `boot.img` çekirdeğinde `binder,hwbinder,vndbinder` var |
 | `ota-sistem-kanit.sh` | zip içindeki sistem, doğrulanmış `system.img` ile **bit bit** aynı |
 | `govde-test.sh` | koruma red matrisi + PIT ayrıştırıcı (cihaz gerekmez) |
