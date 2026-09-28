@@ -325,17 +325,22 @@ bash scripts/gapps-denetle.sh <gapps.zip> <system-agaci> [<ramdisk-dizini>] [<sy
 | yer | ham imajdan (`tune2fs`) bölümün gerçek boş alanı yetiyor mu |
 | sessiz-hata | `elf-kapanis.py` + `init-denetle.py` uygulanmış kopya üzerinde |
 
-Ölçüldü (build10 sistemi, `MindTheGapps-8.1.0-arm`):
+Ölçüldü (build10 sistemi, `MindTheGapps-8.1.0-arm`, ham `system.img` ile):
 
 ```
 yuk e_machine  : 40   (agac referansi: 40)   -> OK
 cakisan dosya  : 0
 agacta olmayan : 0
 bolum          : 2048 MB, bos 1207 MB        -> OK  yuk bolume sigiyor
-saglanan kutuphane : 555 / kok : 292 / erisilebilen ELF : 595  -> yukleyici zinciri saglam
+saglanan kutuphane : 555 / kok : 291 / erisilebilen ELF : 594  -> yukleyici zinciri saglam
 tanimli servis : 71  -> SAGLAM
 SONUC: GApps uygulanabilir, sessiz-hata kapilari temiz
 ```
+
+Yer kapısı **gerçek imajla** ölçüldü: OTA zip'indeki `system.new.dat.br` +
+`system.transfer.list`, `scripts/ota-sistem-coz.py` ile ham `system.img`'ye
+döküldü ve dördüncü argüman olarak verildi. Bölüm 2048 MB, dolu 808 MiB
+(`transfer.list` `new` aralıklarının toplamı), boş 1207 MB, yük 155 MB.
 
 Ek olarak ölçüldü: `ro.control_privapp_permissions` build.prop'ta yok
 (`RoSystemProperties.java:56-63` → `CONTROL_PRIVAPP_PERMISSIONS_DISABLE`),
