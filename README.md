@@ -502,6 +502,7 @@ boşluğu kapatır. Hiçbiri diğerinin yerine geçmez:
 | `stok-indir.sh` | stok firmware'i indirir, **gerçek PIT'i** ve referans imajları çıkarır (cihaz gerekmez) |
 | `pit-coz.py` | ham `.pit` ikilisini ve `heimdall print-pit` metnini tek tabloya indirir |
 | `pit-dogrula.sh` | derleme boyutlarını **cihazın gerçek PIT'iyle** ve derlenen imajlarla karşılaştırır |
+| `blob-stok-karsilastir.py` | vendor blob'larını stok `system.img`'deki kopyalarıyla karşılaştırır; build-id gürültüsünü ayıklar, `--koken` ile gömülü derleme tarihini çıkarır (cihaz gerekmez) |
 | `govde-test.sh` | koruma red matrisi + PIT ayrıştırıcı (cihaz gerekmez) |
 | `kanca-test.mjs` | guard kancasının kararı, model devre dışı (canlı denemede modelin kendi reddi karışabilir) |
 | `govde/j106f-flash.mjs` | yanlış imajın yazılması teknik olarak imkânsız |
@@ -573,6 +574,33 @@ zip -> brotli -> transfer.list blok haritası -> ham ext4
 Ölçüldü: 2678 girdi (dosya + symlink) yapı birebir aynı, 2098 normal dosya
 sha256 birebir aynı.
 
+### blob-stok-karsilastir.py
+
+Vendor blob'larının **kökenini** ölçer. Blob'lar stok cihazdan çekilir; kaynak
+imaj elimizde olduğu için her biri sha256 ile karşılaştırılabilir. Cihaz gerekmez.
+
+```
+== vendor blob'lari vs stok system.img ==
+  birebir ayni        : 45
+  yalniz build-id     : 43
+  GERCEKTEN FARKLI    : 57
+  stokta yok          : 2
+```
+
+Üç ayrım kritik: ham sha256 karşılaştırması `.note.gnu.build-id` (16 baytlık SHA1
+damgası) yüzünden 43 davranış-eşdeğer dosyayı yanlışlıkla "farklı" sayar. Betik
+ELF section header'ından o bölümü bulup ayıklar. Sonuç `readelf -S --wide`
+üzerinden yürüyen **bağımsız** bir hesapla da aynı çıktı.
+
+`--koken` bayrağı, farklı dosyaların içine gömülü derleme tarihini (`__DATE__`)
+çıkarır ve sürüm kaymasını kanıtlar: bizim blob seti **ARH1** (2018-08), stok imaj
+**APJ3** (2016-10). Kayma tek yönlü — bizimki yeni. Ayrıntı: `docs/BLOB-KOKEN.md`.
+
+Bu denetim "blob bozuk mu" sorusunu yanıtlar; bu sessiz bir arıza sınıfıdır
+(`docs/YUKLEYICI-BULGU.md`). Ölçüm: 57 farklı dosyanın 57'si de ROM'a birebir
+giriyor; yüklenen 5 farklı blob'un `DT_NEEDED` komşuları tutarlı;
+`elf-kapanis.py --sembol` çözülemeyen tek sembol bulmuyor.
+
 ### govde-test.sh
 
 Korumanın red matrisini ve PIT ayrıştırıcısını cihazsız sınar. Hiçbir şey yazmaz.
@@ -601,4 +629,6 @@ ilk denemede 456 blok yazıldı ve dosya sistemi okunamadı.
   çözülemeyen sembol (kritik, hiç hata mesajı üretmez)
 - `docs/PIT-GERCEK.md` — cihazın gerçek bölüm tablosu, ölçülmüş; boyut çelişkisinin
   çözümü ve bootloader cmdline kanıtı
+- `docs/BLOB-KOKEN.md` — vendor blob'larının kökeni: ARH1 vs APJ3 sürüm kayması,
+  ölçülmüş; "bozuk mu" sorusunun cevabı ve kalan sınırın dürüst kaydı
 - `docs/arastirma-raporu.md`, `docs/arastirma-raporu-2.md` — ROM araştırması
