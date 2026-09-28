@@ -18,6 +18,16 @@ Etkin cmdline iki kaynaktan birleşir. Kernel 3.10 DT yolu
 `CMDLINE_EXTEND` seçiliyken: `CONFIG_CMDLINE` yazılır, ardından DT
 `/chosen bootargs` **eklenir**. Yani ikisi de etkin cmdline'da bulunur.
 
+Bu üçü bir `choice`'tur (`arch/arm/Kconfig:2150-2171`): yalnızca **biri**
+seçilebilir. `scripts/kconfig/symbol.c:492-518` (`sym_set_tristate_value`) bir
+dal seçilince diğer choice değerlerini temizler, dolayısıyla defconfig'te
+satır sırası belirleyicidir — en son gelen kazanır. Bu ağaçta
+`CMDLINE_EXTEND` sonra geldiği için etkin mod odur; üretilen `.config`'te
+`# CONFIG_CMDLINE_FROM_BOOTLOADER is not set` yazar ve Kconfig
+`warning: override: CMDLINE_EXTEND changes choice state` diye bildirir.
+Ölçüm: `j1minivelte_defconfig`'ten üretilen `.config` ile derlemede kullanılan
+`obj/KERNEL_OBJ/.config` bayt bayt aynı.
+
 Ölçüm (derlenmiş `vmlinux`):
 
 ```

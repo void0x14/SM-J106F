@@ -68,6 +68,36 @@ TWRP zip kurulumu `META-INF/com/google/android/update-binary`'yi çalıştırır
    `l_modem`, `l_fixnv2` (`/nvitem`), `PERSDATA`, `pm_sys`, `HIDDEN`
    (`/preload`) tanımlı. Flash öncesi zorunlu yedekler buradan alınır.
 
+5. **İmza kapısı takılmaz.** Ölçüldü, üç ayrı olgu:
+
+   a. Zip **imzalıdır**. EOCD yorumunda 1738 baytlık blok var; footer
+      `b806ffffca06` → `signature_start=1720`, `comment_size=1738`.
+      `bootable/recovery-twrp/verifier.cpp:129-190` düzenine göre
+      `signed_len = boyut - (comment_size+22) + 22 - 2 = 371690750`, imza
+      `0x30` (DER SEQUENCE) ile başlar. PKCS#7 doğrulaması zip'teki
+      `META-INF/com/android/otacert` ile **geçer** (`Verification successful`).
+
+   b. TWRP'nin anahtarlığında bu anahtar **vardır**. `recovery/root/res/keys`
+      iki anahtar taşır; 1. anahtarın modülüsü `build/target/product/security/
+      testkey.x509.pem` ile birebir aynıdır (`d6931904…91f`). Anahtar kodlaması
+      `verifier.cpp:476+` `load_keys()` biçimidir: 4 baytlık sözcükler
+      big-endian, sözcük sırası ters; `n0inv` bunu doğrular.
+
+   c. İmza denetimi **varsayılan olarak kapalıdır**. `twrp/data.cpp:728`
+      `mPersist.SetValue(TW_SIGNED_ZIP_VERIFY_VAR, "0")`. `twinstall.cpp:368`
+      bu değeri okur; `0` iken `verify_file()` çağrılmaz. Ayrıca TWRP
+      `Install` düğmesi `gui/action.cpp:389` → `TWinstall_zip()` yolundan
+      gider; AOSP'nin `install.cpp:really_install_package()` imza denetimi bu
+      yolda çalışmaz.
+
+   Yani imza hem geçerli hem de kabul edilebilir; kapı yine de kapalı.
+
+6. **Digest kapısı tetiklenmez.** `twinstall.cpp:327-345` yalnızca yanında
+   `.md5`/`.md5sum` dosyası varsa denetler. Zip tek başına kopyalanırsa
+   ("Skipping Digest check: no Digest file found") atlanır. Yanına md5
+   dosyası koymak istenirse değer `45ab977c616b7c52b92297386897838b6d7ca8701c2a707c253e69534126fe84`
+   (sha256) — md5 değil — olduğundan md5 dosyası **koyulmamalıdır**.
+
 ## Sınırlar
 
 - TWRP ramdisk'inde `su` ikilisi yok. Zip'i kurmak root gerektirmez (TWRP

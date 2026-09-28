@@ -1,20 +1,20 @@
 diff --git a/arch/arm/configs/j1minivelte_defconfig b/arch/arm/configs/j1minivelte_defconfig
-index 0016d68f..e6bfc298 100755
+index 0016d68f..bdd12cef 100755
 --- a/arch/arm/configs/j1minivelte_defconfig
 +++ b/arch/arm/configs/j1minivelte_defconfig
-@@ -514,9 +514,9 @@ CONFIG_ATAGS=y
+@@ -514,9 +514,8 @@ CONFIG_ATAGS=y
  CONFIG_ZBOOT_ROM_TEXT=0x0
  CONFIG_ZBOOT_ROM_BSS=0x0
  # CONFIG_ARM_APPENDED_DTB is not set
 -CONFIG_CMDLINE="root=/dev/ram0 rw initrd=0x80e00000,0x1f243f console=ttyS1,115200n8 init=/init mem=128M"
-+CONFIG_CMDLINE="androidboot.selinux=permissive androidboot.hardware=sc8830 console=ttyS1,115200n8"
- CONFIG_CMDLINE_FROM_BOOTLOADER=y
+-CONFIG_CMDLINE_FROM_BOOTLOADER=y
 -# CONFIG_CMDLINE_EXTEND is not set
++CONFIG_CMDLINE="androidboot.selinux=permissive androidboot.hardware=sc8830 console=ttyS1,115200n8"
 +CONFIG_CMDLINE_EXTEND=y
  # CONFIG_CMDLINE_FORCE is not set
  # CONFIG_XIP_KERNEL is not set
  # CONFIG_KEXEC is not set
-@@ -2723,6 +2723,7 @@ CONFIG_STAGING=y
+@@ -2723,6 +2722,7 @@ CONFIG_STAGING=y
  #
  CONFIG_ANDROID=y
  CONFIG_ANDROID_BINDER_IPC=y

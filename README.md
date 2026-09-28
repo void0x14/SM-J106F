@@ -216,14 +216,28 @@ iken `CONFIG_CMDLINE`'ı yazıp DT bootargs'ı ekler. Yani `EXTEND` modunda
 `ro.boot.*` yapar; `:511` `ro.hardware` eşlemesi `export_kernel_boot_props()`
 (`:1095`) içinde, `/init.rc` parse edilmeden (`:1140`) önce kurulur.
 
-Stok J106F da bu yolu kullanır (`kaynak/j106f-kernel/j1minive3g-dt_defconfig:525-528`),
-djeman'ın çalışan `j3xnlte_permissive_defconfig`'i de (`:553-556`):
+Stok J106F da bu yolu kullanır. Ölçüldü
+(`kaynak/j106f-kernel/j1minive3g-dt_defconfig:525-528`):
 
 ```
 CONFIG_CMDLINE="androidboot.selinux=permissive androidboot.hardware=sc8830 console=ttyS1,115200n8"
-# CONFIG_CMDLINE_FROM_BOOTLOADER is not set
+CONFIG_CMDLINE_FROM_BOOTLOADER=y
 CONFIG_CMDLINE_EXTEND=y
+# CONFIG_CMDLINE_FORCE is not set
 ```
+
+Bu bloktaki `CMDLINE_FROM_BOOTLOADER=y` **etkisizdir**: `arch/arm/Kconfig:2150-2153`
+bu üçlüyü bir `choice` yapar, `:2155-2171` ve `scripts/kconfig/symbol.c:492-518`
+gereği bir dalın seçilmesi diğerlerini temizler. Satır sırası belirleyicidir;
+`CMDLINE_EXTEND` sonra geldiği için kazanan odur. Kconfig bunu
+`warning: override: CMDLINE_EXTEND changes choice state` diye bildirir.
+
+Ölçüm (bu ağaç): `j1minivelte_defconfig`'ten yeniden üretilen `.config`,
+derlemede kullanılan `obj/KERNEL_OBJ/.config` ile **bayt bayt aynı**
+(sha256 `cd15fbf1ad49c6de677990f75818590747c6810ccc35b845a9a658254ff41fd2`),
+ve orada `# CONFIG_CMDLINE_FROM_BOOTLOADER is not set` yazar. Etkin mod `EXTEND`'dir.
+Bu yüzden satır artık defconfig'ten **çıkarıldı** — üretilen `.config`
+değişmediği için cihaza giden `boot.img` da değişmedi.
 
 Stok upstream defconfig'teki `initrd=0x80e00000,0x1f243f` ve `mem=128M` **kaldırıldı**:
 ramdisk yerleşimini LK kendisi yapar (`boot.img` başlığındaki adresler
@@ -698,7 +712,7 @@ fstab yollarıyla aynı. Ayrı TWRP indirmeye gerek yok. Ayrıntı ve ölçüm:
 - `docs/BLOB-KOKEN.md` — vendor blob'larının kökeni: ARH1 vs APJ3 sürüm kayması,
   ölçülmüş; "bozuk mu" sorusunun cevabı ve kalan sınırın dürüst kaydı
 - `docs/RECOVERY-TWRP.md` — üretilen `recovery.img` = TWRP 3.2.3-0; ROM zip'ini
-  kuracak kadar (assert, brotli, PIT yolları ölçüldü)
+  kuracak kadar (assert, brotli, imza/anahtarlık, digest, PIT yolları ölçüldü)
 - `docs/BOOT-ZINCIRI.md` — `ro.hardware` üç kaynaktan doğrulandı; stok ile fark,
   ölümcül olmayan rc importu, charger modu servis düzeltmesi
 - `docs/ROOT-ERISIM.md` — root varsayılan kapalı; Developer options ile açılır,

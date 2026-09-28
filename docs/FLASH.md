@@ -94,7 +94,27 @@ Derleme çıktısı: `out/target/product/j1minivelte/recovery.tar`
 j106f-flash incele out/target/product/j1minivelte/recovery.tar --bolum recovery
 ```
 
-Ekranda görünen sha256'yı not al. Sonra:
+Ekranda görünen sha256'yı **aşağıdaki referansla karşılaştır** (kör kopyalama yok):
+
+| Dosya | sha256 | Bayt |
+|---|---|---|
+| `recovery.tar` | `0852e7d3a58e0ff036d9bff1c2ba94dc75fdfcf218f799852b5fa0e626dc835a` | 17295360 |
+| `recovery.img` (tar içindeki) | `7485d7a0dd2a7aa000b96b30f695800ebc14d10b6c3294f93a7d080aeb38fc77` | 17291280 |
+| `boot.img` | `e203d7d80abaa1dcccdd8a076d0bd3ff8995e4531e1a9b1ee3b76f61b9e08982` | 9426960 |
+| `dt.img` | `baa67a565dd59ddd76f5305f3e1ea111466fb98b8f0edf73bea7dedd51276d71` | 129024 |
+| `lineage-15.1-*-UNOFFICIAL-j1minivelte.zip` | `45ab977c616b7c52b92297386897838b6d7ca8701c2a707c253e69534126fe84` | 371692490 |
+| `zImage` (zip'teki çekirdek) | `02b15a66d823ecf65ee0b000160067be2d5b3e49bd0ee41a97ac7d0480188a33` | — |
+| MindTheGapps zip | `e4f65de26de8515acd4f37d52c2321fc8c07211e2522a474f7b54953f52299c2` | 106590724 |
+
+Kendi tarafında doğrula:
+
+```bash
+sha256sum out/target/product/j1minivelte/recovery.tar \
+          out/target/product/j1minivelte/boot.img \
+          out/target/product/j1minivelte/lineage-15.1-*-UNOFFICIAL-j1minivelte.zip
+```
+
+Sonra:
 
 ```bash
 j106f-flash flash out/target/product/j1minivelte/recovery.tar --bolum recovery
