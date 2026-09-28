@@ -137,6 +137,23 @@ doğrulanır:
 sha256sum out/target/product/j1minivelte/lineage-15.1-*-UNOFFICIAL-j1minivelte.zip
 ```
 
+### Google servisleri (Play Store) — ROM'dan SONRA, aynı TWRP oturumunda
+
+LineageOS Google servissiz gelir. Play Store için GApps şart:
+
+```bash
+bash scripts/indir-gapps.sh
+```
+
+TWRP'de **wipe/format yapmadan**:
+
+1. `Install` → `lineage-15.1-*.zip` → `Swipe to Confirm Flash`
+2. `Install` → `MindTheGapps-8.1.0-arm-*.zip` → `Swipe to Confirm Flash`
+3. `Reboot System`
+
+GApps, ROM'dan sonra kurulur. Wipe data, GApps'tan sonra yapılırsa Play
+Hizmetleri bozulur (veri şeması ilk boot'ta kurulur).
+
 ## 9. Geri dönüş (ROM açılmazsa)
 
 TWRP → `Restore` → yedek seç → `EFS` + `Modem` + `Nvitem` + `Product Info`.
