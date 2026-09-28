@@ -655,6 +655,15 @@ alan sırası `Device Type` → `Partition Block Count` → `Partition Name`. Te
 aralığı `[0,1024)`, yani 1024 blok. Değerleri tek tek blok sanmak imajı bozar —
 ilk denemede 456 blok yazıldı ve dosya sistemi okunamadı.
 
+### recovery.img = TWRP
+
+`mka bacon` çıktısındaki `recovery.img` **TWRP 3.2.3-0**'dır ve ROM zip'ini
+kuracak kadar: `assert` cihaz kapısı geçer (TWRP `ro.product.device=j1minivelte`),
+zip'in brotli yükü için `update-binary` brotli kodunu taşır (stripli ikilide
+brotli sözlüğü 122.944 B birebir bulundu), `block_image_update` hedefleri TWRP
+fstab yollarıyla aynı. Ayrı TWRP indirmeye gerek yok. Ayrıntı ve ölçüm:
+`docs/RECOVERY-TWRP.md`.
+
 ## Belgeler
 
 - `docs/plan.md` — ana plan, kararlar, riskler
@@ -666,4 +675,6 @@ ilk denemede 456 blok yazıldı ve dosya sistemi okunamadı.
   çözümü ve bootloader cmdline kanıtı
 - `docs/BLOB-KOKEN.md` — vendor blob'larının kökeni: ARH1 vs APJ3 sürüm kayması,
   ölçülmüş; "bozuk mu" sorusunun cevabı ve kalan sınırın dürüst kaydı
+- `docs/RECOVERY-TWRP.md` — üretilen `recovery.img` = TWRP 3.2.3-0; ROM zip'ini
+  kuracak kadar (assert, brotli, PIT yolları ölçüldü)
 - `docs/arastirma-raporu.md`, `docs/arastirma-raporu-2.md` — ROM araştırması
