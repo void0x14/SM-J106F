@@ -24,3 +24,10 @@ TARGET_KERNEL_SOURCE := kernel/samsung/j1minivelte
 # Init
 TARGET_INIT_VENDOR_LIB := libinit_j1minivelte
 TARGET_RECOVERY_DEVICE_MODULES := libinit_j1minivelte
+
+# Display: sharkls-common'in J3 2016 (j320fn) prop'unu ez.
+# system_prop_file bir listedir (build/make/core/Makefile:314 foreach) ve
+# satirlar build.prop'a bu sirayla yazilir. Init ro.* icin write-once oldugu
+# icin ILK satir kazanir -> cihaza ozel dosya once gelmeli.
+TARGET_SYSTEM_PROP := device/samsung/j1minivelte/system.prop \
+                      device/samsung/sharkls-common/system.prop

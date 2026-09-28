@@ -59,13 +59,18 @@ async function sha256Dosya(yol) {
 
 // tar / tar.md5 / zip / ham imaj içeriğinden kod adı ve ro.product.* çıkarır.
 async function imajIncele(yol, policy) {
-  const kodlar = new Set()
+  // Uc ayri kanit katmani. Ham icerikte kod adi gecmesi ZAYIF kanittir:
+  // dokunmatik firmware yolu (melfas/j1minilte.fw) cihaz kimligi degildir.
+  // Bu yuzden icerik taramasi tek basina reddetmez; yalnizca prop ve dosya
+  // adi kaniti yokken konusur.
+  const kodlar = new Set()     // ham icerik   — zayif
+  const adKodlari = new Set()  // dosya/arsiv adi — guclu
   const prop = []
   const icerik = []
   const sinir = policy.icerik_tarama_limiti_bayt ?? 64 * 1024 * 1024
   const tumKodlar = [...policy.izinli_cihaz_kodlari, ...(policy.reddedilecek_cihaz_kodlari ?? [])]
 
-  const tara = (buf, etiket) => {
+  const tara = (buf, etiket, hedef = kodlar) => {
     // Android boot image / bootloader bloblari sikistirilmis olabilir. Ham bayt
     // taramasi gzip akisinin icini goremez; metin aramasindan once ac.
     // Not: sikistirilmis verinin ICINDE de 1f 8b 08 dizisi gecebilir; ilk
@@ -88,7 +93,7 @@ async function imajIncele(yol, policy) {
       const metin = p.toString("latin1")
       for (const kod of tumKodlar) {
         const kacis = kod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-        if (new RegExp(`(?<![a-z0-9])${kacis}(?![a-z0-9])`, "i").test(metin)) kodlar.add(kod)
+        if (new RegExp(`(?<![a-z0-9])${kacis}(?![a-z0-9])`, "i").test(metin)) hedef.add(kod)
       }
       const propRe = /(ro\.(?:product\.device|build\.product|product\.name|product\.model))\s*=\s*([A-Za-z0-9_\-.]+)/g
       let m
@@ -136,9 +141,9 @@ async function imajIncele(yol, policy) {
   }
 
   // dış dosya adı da kanıt sayılır: 'twrp-j3xlte-recovery.tar' reddedilmeli
-  tara(Buffer.from(path.basename(yol), "latin1"), "dosya-adı")
+  tara(Buffer.from(path.basename(yol), "latin1"), "dosya-adı", adKodlari)
 
-  return { kodlar: [...kodlar], prop, icerik }
+  return { kodlar: [...kodlar], adKodlari: [...adKodlari], prop, icerik }
 }
 
 function cizgi() {
@@ -175,15 +180,23 @@ async function incele(imaj, bolum, kabul = false) {
     for (const ad of ic.icerik.slice(0, 15)) console.log(`      - ${ad}`)
     if (ic.icerik.length > 15) console.log(`      … +${ic.icerik.length - 15}`)
   }
-  console.log(`  cihaz izi  : ${ic.kodlar.length ? ic.kodlar.join(", ") : "(kod adı bulunamadı)"}`)
+  console.log(`  cihaz izi  : ${ic.kodlar.length ? ic.kodlar.join(", ") : "(içerikte kod adı yok)"}`)
+  if (ic.adKodlari.length) console.log(`  ad kanıtı  : ${ic.adKodlari.join(", ")}`)
   for (const p of ic.prop) console.log(`      ${p.anahtar} = ${p.deger}   (${p.etiket})`)
 
-  const red = ic.kodlar.filter((k) => (policy.reddedilecek_cihaz_kodlari ?? []).includes(k))
-  const yesil = ic.kodlar.filter((k) => policy.izinli_cihaz_kodlari.includes(k))
+  const yasak = policy.reddedilecek_cihaz_kodlari ?? []
   const propRed = ic.prop.filter(
     (p) => (p.anahtar === "ro.product.device" || p.anahtar === "ro.build.product") &&
            !policy.izinli_cihaz_kodlari.includes(p.deger),
   )
+  const propYesil = ic.prop.filter(
+    (p) => (p.anahtar === "ro.product.device" || p.anahtar === "ro.build.product") &&
+           policy.izinli_cihaz_kodlari.includes(p.deger),
+  )
+  const adRed = ic.adKodlari.filter((k) => yasak.includes(k))
+  const adYesil = ic.adKodlari.filter((k) => policy.izinli_cihaz_kodlari.includes(k))
+  const icerikRed = ic.kodlar.filter((k) => yasak.includes(k))
+  const icerikYesil = ic.kodlar.filter((k) => policy.izinli_cihaz_kodlari.includes(k))
 
   const karantina = async (sebep, detay) => {
     await fsp.mkdir(KARANTINA, { recursive: true })
@@ -193,19 +206,31 @@ async function incele(imaj, bolum, kabul = false) {
     return hedef
   }
 
-  if (red.length) {
-    const h = await karantina("yanlis_cihaz", red.join(","))
-    dur(`YANLIŞ CİHAZ İMAJI. Bu imaj şunlara ait: ${red.join(", ")}\n` +
-        `     Senin telefonun: ${policy.cihaz.model} (${policy.cihaz.soc})\n` +
-        `     Kopya karantinaya alındı: ${h}`)
-  }
+  // 1) En guclu kanit: imajin kendi ro.product.device degeri yasak bir cihaz diyorsa dur.
   if (propRed.length) {
     const h = await karantina("prop_cihaz_uyusmadi", JSON.stringify(propRed))
     dur(`${propRed[0].anahtar} = '${propRed[0].deger}' — bu senin telefonun değil.\n` +
         `     Senin telefonun: ${policy.cihaz.model}\n` +
         `     Kopya karantinaya alındı: ${h}`)
   }
-  if (!yesil.length && !ic.prop.length && !kabul) {
+  // 2) Dosya adi bilerek yazilmis bir kanittir: 'twrp-j3xlte-recovery.tar' reddedilmeli.
+  if (adRed.length) {
+    const h = await karantina("yanlis_cihaz_ad", adRed.join(","))
+    dur(`YANLIŞ CİHAZ İMAJI (dosya adı). Bu imaj şunlara ait: ${adRed.join(", ")}\n` +
+        `     Senin telefonun: ${policy.cihaz.model} (${policy.cihaz.soc})\n` +
+        `     Kopya karantinaya alındı: ${h}`)
+  }
+  // 3) Ham icerikteki kod adi ZAYIF kanittir. Prop ve dosya adi bir sey soylemiyorsa konusur.
+  //    Dokunmatik firmware yolu (melfas/j1minilte.fw) yuzunden dogru imaj reddedilmesin.
+  if (!propYesil.length && !adYesil.length && icerikRed.length) {
+    const h = await karantina("yanlis_cihaz_icerik", icerikRed.join(","))
+    dur(`YANLIŞ CİHAZ İMAJI (içerik). Bu imaj şunlara ait: ${icerikRed.join(", ")}\n` +
+        `     Senin telefonun: ${policy.cihaz.model} (${policy.cihaz.soc})\n` +
+        `     Kopya karantinaya alındı: ${h}`)
+  }
+
+  const kanitVar = propYesil.length || adYesil.length || icerikYesil.length
+  if (!kanitVar && !kabul) {
     await journal({ olay: "reddedildi", sebep: "kanit_yok", sha256: sha, dosya: yol })
     dur(`Bu imajın ${policy.cihaz.model} için olduğuna dair HİÇBİR kanıt yok.\n` +
         `     İçinde kod adı da, ro.product.device da bulunamadı.\n` +

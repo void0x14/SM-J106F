@@ -40,7 +40,9 @@ Z=$(ls "$P"/lineage-15.1-*-UNOFFICIAL-j1minivelte.zip 2>/dev/null | head -1)
 chk "zip var"                        "[ -n '$Z' ]"
 if [ -n "$Z" ]; then
   chk "zip icinde boot.img"          "unzip -l '$Z' | grep -c 'boot.img'"
-  chk "zip icinde system img"        "unzip -l '$Z' | grep -cE 'system\.[a-z]*\.?img'"
+  # Android 8.1 blok-OTA kullanir: system.img yerine system.new.dat.br +
+  # system.transfer.list gelir. Ikisinden biri varsa system imaji tamamdir.
+  chk "zip icinde system imaji"      "unzip -l '$Z' | grep -cE 'system\.(new\.dat|transfer\.list|img)'"
   chk "zip icinde update-binary"     "unzip -l '$Z' | grep -c 'META-INF/com/google/android/update-binary'"
   chk "zip icinde META-INF/com/android/metadata" \
                                      "unzip -l '$Z' | grep -c 'META-INF/com/android/metadata'"

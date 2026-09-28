@@ -45,19 +45,36 @@ Ek olarak `govde-koruma.js`, `tool.execute.before` kancasında ham flash komutla
 - Uzantı izinli mi (`.tar`, `.tar.md5`, `.img`, `.zip`)
 - Arşiv içeriği açılır; **gzip'li ramdisk de açılır** (Android boot image
   ramdisk'i sıkıştırılmıştır; ham bayt taraması cihaz kanıtını göremez)
-- Dosya adı da kanıt sayılır: `twrp-j3xlte-recovery.tar` reddedilir
-- `reddedilecek_cihaz_kodlari` eşleşirse → karantinaya kopyala + dur
-- `ro.product.device` / `ro.build.product` izinli değilse → karantina + dur
-- Hiç kanıt yoksa → dur (kullanıcı `--kanit-yok-kabul` ile geçebilir)
 - Boyut bölüm sınırını aşıyorsa → dur
+
+### Cihaz kimliği: üç kanıt katmanı
+
+| Katman | Kaynak | Güç | Karar |
+|---|---|---|---|
+| 1 | `ro.product.device` / `ro.build.product` | güçlü | yasak cihaz derse → karantina + dur |
+| 2 | dosya adı | güçlü | yasak kod adı geçerse → karantina + dur |
+| 3 | ham içerikte kod adı | **zayıf** | yalnızca 1 ve 2 bir şey söylemiyorsa → karantina + dur |
+
+Hiçbir katman izinli cihaz demiyorsa → dur (kullanıcı `--kanit-yok-kabul` ile geçebilir).
+
+**3. katman neden zayıf — ölçülmüş:** J106F çekirdeği dokunmatik panel firmware'ini
+`melfas/j1minilte.fw` ve `/sdcard/j1minilte.bin` yollarıyla taşır. Ham bayt araması
+`j1minilte` görüp bunu cihaz kimliği sanıyordu ve **kendi ürettiği doğru
+`recovery.tar`'ı reddediyordu**. Ayrım şu: bu diziler bir dosya *yolu*, cihaz
+*özelliği* değil. Prop ve dosya adı katmanları doğru cevabı zaten veriyor.
+
+`reddedilecek_cihaz_kodlari` içindeki `j1minilte` bu yüzden tehlikeli bir tuzağa
+dönüşmüştü; artık yalnızca güçlü katmanlarda reddettiriyor.
 
 ## Test matrisi (çalıştırılmış)
 
 | Senaryo | Beklenen | Sonuç |
 |---|---|---|
 | Doğru cihaz, nötr dosya adı | geçer | ✔ exit 0 |
+| **Gerçek derlenmiş `recovery.tar`** | geçer | ✔ exit 0 |
 | Yanlış cihaz (`j3xlte`) ramdisk'te | reddedilir | ✔ exit 2 |
 | Yanlış cihaz dosya adında | reddedilir | ✔ exit 2 |
+| Doğru cihaz dosya adında | geçer | ✔ exit 0 |
 | `--bolum efs` | reddedilir | ✔ exit 2 |
 | `--bolum userdata` | reddedilir | ✔ exit 2 |
 | Uzantı `.bin` | reddedilir | ✔ exit 2 |

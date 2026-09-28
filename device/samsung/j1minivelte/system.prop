@@ -1,0 +1,21 @@
+#
+# system.prop for SM-J106F (j1minivelte)
+#
+# Bu dosya, sharkls-common'dan (J3 2016 / j320fn) miras kalan yanlis ekran
+# ayarlarini duzeltir. Init'te ro.* prop'lari write-once'tir ve build.prop
+# satirlari yukaridan asagi islenir: ILK giren kazanir. Bu yuzden bu dosya
+# BoardConfig.mk'de TARGET_SYSTEM_PROP listesinin BASINA konur.
+#
+# Olcum (kernel panel DTS'leri, 6 panelin hepsi):
+#   gen-panel-xres = 480, gen-panel-yres = 800
+#   gen-panel-width = 56 mm, gen-panel-height = 94 mm
+#   capraz = sqrt(56^2 + 94^2) = 109.4 mm = 4.31"
+#   dpi = sqrt(480^2 + 800^2) / 4.31 = 933.8 / 4.31 = 216.6
+# 216.6 dpi -> hdpi (240) kovasi. xhdpi (320) degil.
+#
+# 320, J3 2016'nin degeridir (720x1280 / 5.0" = 294 dpi) ve bu panelde
+# 480 / 320 = 1.5" gibi fiziksel olarak imkansiz bir genislik verir.
+
+ro.sf.lcd_density=240
+ro.sf.lcd_width=56
+ro.sf.lcd_height=94

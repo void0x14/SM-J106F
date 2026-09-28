@@ -177,11 +177,72 @@ mka bacon
 - `BOARD_KERNEL_PAGESIZE := 2048`, `BOARD_KERNEL_BASE := 0x00000000`
 - `TARGET_COPY_OUT_VENDOR` ayarlı değil → varsayılan `system/vendor`.
 
+## Google servisleri (Play Store, YouTube)
+
+LineageOS 15.1 Google servissiz gelir. ROM kurulduktan **sonra**, aynı TWRP
+oturumunda GApps zip'i kurulur.
+
+```bash
+bash scripts/indir-gapps.sh
+```
+
+| | |
+|---|---|
+| Paket | MindTheGapps 8.1.0 arm |
+| Neden bu | cihaz 32-bit ARM + Android 8.1 + 1 GB RAM; OpenGApps `stock` fazla ağır, MindTheGapps yalnızca Play Store + Play Hizmetleri çekirdeği + gerekli çerçeveleri kurar |
+| Boyut | 106.590.724 B (GitHub'ın 100 MB tek-dosya limitini aştığı için repoya gömülemez; script indirir) |
+| sha256 | `e4f65de26de8515acd4f37d52c2321fc8c07211e2522a474f7b54953f52299c2` |
+| İçerik | `Phonesky` (Play Store), `PrebuiltGmsCore` (Play Hizmetleri), `GoogleServicesFramework`, `SetupWizard`, `Velvet` (YouTube için gerekli) |
+
+Kurulum sırası: `lineage-15.1-*.zip` → GApps zip'i → yeniden başlat.
+
+## Ekran yoğunluğu düzeltmesi
+
+`device/samsung/sharkls-common/system.prop` başlığı `# system.prop for j320fn` —
+J3 2016'dan miras. Oradaki `ro.sf.lcd_density=320` bu panelde yanlıştır.
+
+Ölçüm (kernel panel DTS'leri, 6 panelin hepsi `kernel/samsung/j1minivelte/arch/arm/boot/dts/`):
+
+```
+gen-panel-xres = 480      gen-panel-yres = 800
+gen-panel-width = 56 mm   gen-panel-height = 94 mm
+çapraz = sqrt(56² + 94²) = 109.4 mm = 4.31"
+dpi = sqrt(480² + 800²) / 4.31 = 933.8 / 4.31 = 216.6
+```
+
+216.6 dpi → **hdpi (240)**. 320 verilirse 480/320 = 1.5" gibi fiziksel olarak
+imkânsız bir genişlik çıkar.
+
+Düzeltme `device/samsung/j1minivelte/system.prop` içinde; `BoardConfig.mk` onu
+`TARGET_SYSTEM_PROP` listesinin **başına** koyar:
+
+```make
+TARGET_SYSTEM_PROP := device/samsung/j1minivelte/system.prop \
+                      device/samsung/sharkls-common/system.prop
+```
+
+Mekanizma: `system_prop_file` bir listedir (`build/make/core/Makefile:314` `foreach`)
+ve satırlar build.prop'a bu sırayla yazılır. Init'te `ro.*` write-once'tır
+(`system/core/init/property_service.cpp:186-193`), yani **ilk satır kazanır**.
+
+Not: `TARGET_SCREEN_DENSITY` bu ağaçta hiçbir yerde tüketilmez — `build/`,
+`bootable/`, `vendor/` tarandı, tüketici yok. Bu yüzden yoğunluk prop'tan verilir.
+
 ## Güvenlik
 
 Flash işlemi **gövde koruması** (body guard) altındadır: cihaz izin listesi, bölüm
 izin listesi, boyut sınırı, TTL'li onay kaydı, imaj hash doğrulaması ve TTY zorunluluğu.
-Onay olmadan hiçbir imaj yazılamaz. Ayrıntı: `docs/plan.md` §7.
+Onay olmadan hiçbir imaj yazılamaz. Ayrıntı: `docs/plan.md` §7, `govde/KURULUM.md`.
+
+Cihaz kimliği üç kanıt katmanıyla sınanır:
+
+1. **prop** (`ro.product.device` / `ro.build.product`) — en güçlü; yasak cihaz derse dur
+2. **dosya adı** — `twrp-j3xlte-recovery.tar` gibi bilerek yazılmış kanıt
+3. **ham içerik** — yalnızca ilk ikisi bir şey söylemiyorsa konuşur
+
+3. katmanın zayıf olmasının sebebi ölçülmüştür: J106F çekirdeği dokunmatik panel
+firmware'ini `melfas/j1minilte.fw` yoluyla taşır. Ham arama bunu cihaz kimliği sanıp
+doğru `recovery.tar`'ı reddediyordu.
 
 Flash öncesi mutlaka yedeklenmeli: `efs`, `l_modem`, `nvitem`, `prodnv`.
 
