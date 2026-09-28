@@ -82,8 +82,8 @@ Cihaz download mode'a girmeden de aynı karşılaştırma yapılır.
   ✔ RECOVERY   20971520 bayt — esit
   ✔ SYSTEM     derleme 2147483648, cihaz 2902458368 — imaj sigar (derleme kucuk)
 
-  ✔ boot.img       9426960 bayt <= KERNEL 20971520 bayt (sigar)
-  ✔ recovery.img   17291280 bayt <= RECOVERY 20971520 bayt (sigar)
+  ✔ boot.img       9435152 bayt <= KERNEL 20971520 bayt (sigar)
+  ✔ recovery.img   17287184 bayt <= RECOVERY 20971520 bayt (sigar)
 ```
 
 ## 5. TWRP'yi yaz (ilk yazma işlemi)
@@ -99,8 +99,8 @@ Ekranda görünen sha256'yı **aşağıdaki referansla karşılaştır** (kör k
 | Dosya | sha256 | Bayt |
 |---|---|---|
 | `recovery.tar` | `578bbcd6a74df652f0f9c6d07014c9cb056b36a99281526fe1027f85b2cca1ea` | 17295360 |
-| `recovery.img` (tar içindeki) | `7ded84e0279de153c9c6c5b6931f1236ce516e39319c959b13486633632230bf` | 17291280 |
-| `boot.img` | `9e1c8f0c737f5af931145c3f53cc6c1f17706b14e8cbf1ceee54dfd851682d8f` | 9426960 |
+| `recovery.img` (tar içindeki) | `7ded84e0279de153c9c6c5b6931f1236ce516e39319c959b13486633632230bf` | 17287184 |
+| `boot.img` | `9e1c8f0c737f5af931145c3f53cc6c1f17706b14e8cbf1ceee54dfd851682d8f` | 9435152 |
 | `dt.img` | `baa67a565dd59ddd76f5305f3e1ea111466fb98b8f0edf73bea7dedd51276d71` | 129024 |
 | `lineage-15.1-*-UNOFFICIAL-j1minivelte.zip` | `c2b7e570401baacad1e7ccc369c835d3e3053b550c28c70284cf8c1693c07291` | 367575272 |
 | `zImage` (zip'teki çekirdek) | `d01a17f1f1f7845c5d9d1e22d17e42bea71e51252a63e4731026964d7f28a15e` | 5499936 |
