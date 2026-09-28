@@ -98,13 +98,17 @@ Ekranda görünen sha256'yı **aşağıdaki referansla karşılaştır** (kör k
 
 | Dosya | sha256 | Bayt |
 |---|---|---|
-| `recovery.tar` | `0852e7d3a58e0ff036d9bff1c2ba94dc75fdfcf218f799852b5fa0e626dc835a` | 17295360 |
-| `recovery.img` (tar içindeki) | `7485d7a0dd2a7aa000b96b30f695800ebc14d10b6c3294f93a7d080aeb38fc77` | 17291280 |
-| `boot.img` | `e203d7d80abaa1dcccdd8a076d0bd3ff8995e4531e1a9b1ee3b76f61b9e08982` | 9426960 |
+| `recovery.tar` | `578bbcd6a74df652f0f9c6d07014c9cb056b36a99281526fe1027f85b2cca1ea` | 17295360 |
+| `recovery.img` (tar içindeki) | `7ded84e0279de153c9c6c5b6931f1236ce516e39319c959b13486633632230bf` | 17291280 |
+| `boot.img` | `9e1c8f0c737f5af931145c3f53cc6c1f17706b14e8cbf1ceee54dfd851682d8f` | 9426960 |
 | `dt.img` | `baa67a565dd59ddd76f5305f3e1ea111466fb98b8f0edf73bea7dedd51276d71` | 129024 |
-| `lineage-15.1-*-UNOFFICIAL-j1minivelte.zip` | `45ab977c616b7c52b92297386897838b6d7ca8701c2a707c253e69534126fe84` | 371692490 |
-| `zImage` (zip'teki çekirdek) | `02b15a66d823ecf65ee0b000160067be2d5b3e49bd0ee41a97ac7d0480188a33` | — |
+| `lineage-15.1-*-UNOFFICIAL-j1minivelte.zip` | `c2b7e570401baacad1e7ccc369c835d3e3053b550c28c70284cf8c1693c07291` | 367575272 |
+| `zImage` (zip'teki çekirdek) | `d01a17f1f1f7845c5d9d1e22d17e42bea71e51252a63e4731026964d7f28a15e` | 5499936 |
 | MindTheGapps zip | `e4f65de26de8515acd4f37d52c2321fc8c07211e2522a474f7b54953f52299c2` | 106590724 |
+
+> Bu değerler zram (`CONFIG_ZRAM=y`) + `service zram` + ekran/hdpi + f2fs
+> düzeltmelerini içeren derlemeden ölçüldü. Çekirdek değiştiği için
+> `boot.img`/`recovery.img`/`zImage` önceki sürüme göre farklıdır.
 
 Kendi tarafında doğrula:
 

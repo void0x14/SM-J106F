@@ -11,7 +11,7 @@ index cd4c750..1c578f4 100644
  include $(call all-makefiles-under,$(LOCAL_PATH))
  endif
 diff --git a/BoardConfigCommon.mk b/BoardConfigCommon.mk
-index 7bfcf69..a58cffd 100644
+index 7bfcf69..09c28d8 100644
 --- a/BoardConfigCommon.mk
 +++ b/BoardConfigCommon.mk
 @@ -1,5 +1,5 @@
@@ -21,7 +21,7 @@ index 7bfcf69..a58cffd 100644
  
  PLATFORM_PATH := device/samsung/sharkls-common
  
-@@ -13,7 +13,11 @@ TARGET_ARCH_VARIANT := armv7-a-neon
+@@ -13,12 +13,16 @@ TARGET_ARCH_VARIANT := armv7-a-neon
  TARGET_CPU_VARIANT := cortex-a7
  TARGET_CPU_SMP := true
  ARCH_ARM_HAVE_TLS_REGISTER := true
@@ -34,6 +34,25 @@ index 7bfcf69..a58cffd 100644
  
  BOARD_NEEDS_MEMORYHEAPION_SPRD := true
  BOARD_USE_EMMC := true
+ 
+-DEVICE_RESOLUTION := 720x1280
++DEVICE_RESOLUTION := 480x800
+ 
+ TARGET_BOOTLOADER_BOARD_NAME := SC9830I
+ 
+@@ -58,11 +62,10 @@ BOARD_CACHEIMAGE_PARTITION_SIZE := 209715200
+ BOARD_PERSISTIMAGE_PARTITION_SIZE := 10485760
+ BOARD_FLASH_BLOCK_SIZE := 131072
+ 
+-BOARD_CACHEIMAGE_FILE_SYSTEM_TYPE := f2fs
++BOARD_CACHEIMAGE_FILE_SYSTEM_TYPE := ext4
+ BOARD_HAS_LARGE_FILESYSTEM := true
+ BOARD_SUPPRESS_SECURE_ERASE := true
+ TARGET_USERIMAGES_USE_EXT4 := true
+-TARGET_USERIMAGES_USE_F2FS := true
+ 
+ # lineagehw
+ BOARD_HARDWARE_CLASS := hardware/samsung/lineagehw/
 diff --git a/cmd_services/Android.mk b/cmd_services/Android.mk
 new file mode 100644
 index 0000000..2e1cf5e
@@ -523,8 +542,22 @@ index c944554..0000000
 -service zram /system/xbin/zram.sh
 -    disabled
 -    oneshot
+diff --git a/recovery/root/fstab.sc8830 b/recovery/root/fstab.sc8830
+index 0a1c41d..beb18dd 100755
+--- a/recovery/root/fstab.sc8830
++++ b/recovery/root/fstab.sc8830
+@@ -5,9 +5,7 @@
+ # <src>                                         <mnt_point>  <type>  <mnt_flags and options>             <fs_mgr_flags>
+ 
+ /dev/block/platform/sdio_emmc/by-name/SYSTEM   /system      ext4 ro,errors=panic                                                                 wait
+-/dev/block/platform/sdio_emmc/by-name/userdata /data        f2fs nosuid,nodev,noatime,inline_data,inline_xattr                                   wait,check,formattable,encryptable=footer
+ /dev/block/platform/sdio_emmc/by-name/userdata /data        ext4 nosuid,nodev,noatime,noauto_da_alloc,discard,journal_async_commit,errors=panic  wait,check,formattable,encryptable=footer
+-/dev/block/platform/sdio_emmc/by-name/CACHE    /cache       f2fs nosuid,nodev,noatime,inline_xattr                                               wait,check,formattable
+ /dev/block/platform/sdio_emmc/by-name/CACHE    /cache       ext4 nosuid,nodev,noatime,noauto_da_alloc,discard,journal_async_commit,errors=panic  wait,check,formattable
+ /dev/block/platform/sdio_emmc/by-name/efs      /efs         ext4 nosuid,nodev,noatime,noauto_da_alloc,discard,journal_async_commit,errors=panic  wait,check
+ /dev/block/platform/sdio_emmc/by-name/prodnv   /productinfo ext4 nosuid,nodev,noatime,noauto_da_alloc,discard,journal_async_commit,errors=panic  wait,check
 diff --git a/rootdir/Android.mk b/rootdir/Android.mk
-index fa546fd..5a561d1 100644
+index fa546fd..fcfd144 100644
 --- a/rootdir/Android.mk
 +++ b/rootdir/Android.mk
 @@ -50,6 +50,22 @@ LOCAL_SRC_FILES    := etc/init.j3xnlte_base.rc
@@ -550,6 +583,35 @@ index fa546fd..5a561d1 100644
  include $(CLEAR_VARS)
  LOCAL_MODULE       := init.sc8830.rc
  LOCAL_MODULE_TAGS  := optional eng
+@@ -90,6 +106,14 @@ LOCAL_SRC_FILES    := etc/ueventd.sc8830.rc
+ LOCAL_MODULE_PATH  := $(TARGET_ROOT_OUT)
+ include $(BUILD_PREBUILT)
+ 
++include $(CLEAR_VARS)
++LOCAL_MODULE       := zram.sh
++LOCAL_MODULE_TAGS  := optional eng
++LOCAL_MODULE_CLASS := EXECUTABLES
++LOCAL_SRC_FILES    := xbin/zram.sh
++LOCAL_MODULE_PATH  := $(TARGET_OUT)/xbin
++include $(BUILD_PREBUILT)
++
+ include $(CLEAR_VARS)
+ LOCAL_MODULE       := sswap
+ LOCAL_MODULE_TAGS  := optional eng
+diff --git a/rootdir/etc/fstab.sc8830 b/rootdir/etc/fstab.sc8830
+index 7377545..1923445 100755
+--- a/rootdir/etc/fstab.sc8830
++++ b/rootdir/etc/fstab.sc8830
+@@ -5,9 +5,7 @@
+ # <src>                                         <mnt_point>  <type>  <mnt_flags and options>             <fs_mgr_flags>
+ 
+ /dev/block/platform/sdio_emmc/by-name/SYSTEM   /system      ext4 ro,errors=panic                                                                 wait
+-/dev/block/platform/sdio_emmc/by-name/userdata /data        f2fs nosuid,nodev,noatime,inline_data,inline_xattr                                   wait,check,formattable,encryptable=footer
+ /dev/block/platform/sdio_emmc/by-name/userdata /data        ext4 nosuid,nodev,noatime,noauto_da_alloc,discard,journal_async_commit,errors=panic  wait,check,formattable,encryptable=footer
+-/dev/block/platform/sdio_emmc/by-name/CACHE    /cache       f2fs nosuid,nodev,noatime,inline_xattr                                               wait,check,formattable
+ /dev/block/platform/sdio_emmc/by-name/CACHE    /cache       ext4 nosuid,nodev,noatime,noauto_da_alloc,discard,journal_async_commit,errors=panic  wait,check,formattable
+ /dev/block/platform/sdio_emmc/by-name/efs      /efs         ext4 nosuid,nodev,noatime,noauto_da_alloc,discard,journal_async_commit,errors=panic  wait,check
+ /dev/block/platform/sdio_emmc/by-name/prodnv   /productinfo ext4 nosuid,nodev,noatime,noauto_da_alloc,discard,journal_async_commit,errors=panic  wait,check
 diff --git a/rootdir/etc/init.board.rc b/rootdir/etc/init.board.rc
 index c7ba6f0..df5ce48 100755
 --- a/rootdir/etc/init.board.rc
@@ -738,21 +800,21 @@ index 0000000..96a1369
 +    write /sys/devices/system/cpu/cpufreq/interactive/timer_slack 40000
 +    write /sys/devices/system/cpu/cpufreq/interactive/boostpulse_duration 0
 diff --git a/rootdir/etc/init.sc8830.rc b/rootdir/etc/init.sc8830.rc
-index e2b6338..fb881d6 100755
+index e2b6338..c2fefa8 100755
 --- a/rootdir/etc/init.sc8830.rc
 +++ b/rootdir/etc/init.sc8830.rc
-@@ -239,10 +239,6 @@ on property:ro.board_ram_size=high
-     setprop zram.disksize 600
-     write /proc/sys/vm/extra_free_kbytes 4096
+@@ -243,6 +243,10 @@ on property:ro.config.zram.support=true
+     write /proc/sys/vm/page-cluster  0
+     start zram
  
--on property:ro.config.zram.support=true
--    write /proc/sys/vm/page-cluster  0
--    start zram
--
++service zram /system/xbin/zram.sh
++        disabled
++        oneshot
++
  on property:ro.debuggable=1
      write /sys/kernel/debug/fatal_dump/enable 1
      chmod 777 /sys/kernel/debug/sc2713-regulator/vddarm/voltage
-@@ -334,9 +330,6 @@ on property:persist.modem.l.enable=1
+@@ -334,9 +338,6 @@ on property:persist.modem.l.enable=1
  on property:persist.modem.lf.enable=1
      start refnotify_l
  
@@ -769,6 +831,57 @@ index 09dd05f..f435c05 100755
 @@ -1 +1 @@
 -import /init.j3xnlte.rc
 +import /init.j1minivelte.rc
+diff --git a/rootdir/xbin/zram.sh b/rootdir/xbin/zram.sh
+new file mode 100755
+index 0000000..842e206
+--- /dev/null
++++ b/rootdir/xbin/zram.sh
+@@ -0,0 +1,45 @@
++#!/system/bin/sh
++#
++# J106F (j1minivelte) zram kurulumu.
++#
++# init bu betigi "on property:ro.config.zram.support=true" ile baslatir.
++# disksize, init.sc8830.rc icindeki "on property:ro.board_ram_size=<x>"
++# bloklarinda zram.disksize (MB) olarak set edilir.
++#
++# Cekirdek: drivers/staging/zram (CONFIG_ZRAM=y, CONFIG_ZSMALLOC=y).
++# Sysfs arayuzu (zram_sysfs.c):
++#   /sys/block/zram0/disksize      -> memparse() ile bayt (S_IRUGO|S_IWUSR)
++#   /sys/block/zram0/reset         -> write-only (S_IWUSR)
++#   /sys/block/zram0/mem_used_total, orig_data_size, compr_data_size -> R/O
++#
++# Not: disksize, cihaz init_done olmadan ONCE yazilmalidir; sonra yazmak
++# -EBUSY dondurur (zram_sysfs.c:disksize_store).
++
++ZRAM_DEV=/dev/block/zram0
++ZRAM_SYS=/sys/block/zram0
++
++# Disksize'i MB cinsinden oku (init setprop zram.disksize <MB>).
++SIZE_MB=$(/system/bin/getprop zram.disksize)
++if [ -z "$SIZE_MB" ]; then
++    SIZE_MB=400
++fi
++
++# Blok aygitini bekle / olustur.
++if [ ! -e "$ZRAM_DEV" ]; then
++    mkdir -p /dev/block
++    mknod "$ZRAM_DEV" b 253 0 2>/dev/null
++fi
++
++if [ ! -e "$ZRAM_DEV" ]; then
++    /system/bin/log -t zram "zram0 blok aygiti yok, cikiliyor"
++    exit 1
++fi
++
++# Disksize'i bayt olarak yaz (memparse kabul eder).
++echo $((SIZE_MB * 1024 * 1024)) > "$ZRAM_SYS/disksize"
++
++# Swap alanini olustur ve etkinlestir.
++/system/bin/mkswap "$ZRAM_DEV"
++/system/bin/swapon "$ZRAM_DEV"
++
++/system/bin/log -t zram "zram0 etkin: ${SIZE_MB}MB"
 diff --git a/sepolicy/charon.te b/sepolicy/charon.te
 new file mode 100644
 index 0000000..d6dbc50
@@ -1079,7 +1192,7 @@ index 0000000..6a4ca4f
 +allow wlandutservice system_data_file:dir search;
 +allow wlandutservice proc:file { read open };
 diff --git a/sharkls.mk b/sharkls.mk
-index 6f66b79..6d58468 100644
+index 6f66b79..0ddf0cf 100644
 --- a/sharkls.mk
 +++ b/sharkls.mk
 @@ -175,8 +175,8 @@ PRODUCT_PACKAGES += \
@@ -1093,7 +1206,15 @@ index 6f66b79..6d58468 100644
      init.sc8830.rc \
      init.sc8830.usb.rc \
      init.sc8830_ss.rc \
-@@ -274,6 +274,7 @@ PRODUCT_PACKAGES += \
+@@ -184,6 +184,7 @@ PRODUCT_PACKAGES += \
+     ueventd.sc8830.rc \
+     sswap \
+     bgcompact \
++    zram.sh \
+     ffu
+ 
+ # e2fsprog
+@@ -274,6 +275,7 @@ PRODUCT_PACKAGES += \
      audio.primary.sc8830 \
      liboemcrypto \
      modem_control \

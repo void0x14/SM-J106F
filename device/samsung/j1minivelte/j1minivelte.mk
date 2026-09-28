@@ -27,3 +27,7 @@ $(call inherit-product, device/samsung/sharkls-common/sharkls.mk)
 # Ayni adla derleyip vendor/lib'e kuruyoruz. Kaynak: libshims/edmnativehelper_shim.c
 PRODUCT_PACKAGES += \
     libedmnativehelper
+
+# AAPT: sharkls-common (j320fn) xhdpi'yi tercih ediyor; gercek yogunluk hdpi (240).
+# hdpi ve xhdpi kaynaklari dahil kalir, tercih hdpi olur.
+PRODUCT_AAPT_PREF_CONFIG := hdpi

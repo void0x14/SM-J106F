@@ -19,3 +19,16 @@
 ro.sf.lcd_density=240
 ro.sf.lcd_width=56
 ro.sf.lcd_height=94
+
+# sharkls-common/system.prop:172 de xhdpi yazar ve build sisteminin
+# urettigi degerden ONCE geldigi icin yarisi kazanirdi. Bu dosya daha da
+# once geldigi icin burada hdpi'ye sabitliyoruz.
+ro.build.aapt.config.prefer=hdpi
+
+# RAM profili: 1 GB cihaz. Stok J106F build.prop ile ayni.
+# ro.board_ram_size, init.sc8830.rc'de zram.disksize (mid=400 MB) ve
+# /proc/sys/vm/extra_free_kbytes (mid=2048) secen bloklari tetikler.
+# ro.config.low_ram=true -> ActivityManager.isLowRamDeviceStatic() acik,
+# LowMemoryMode (-XX:LowMemoryMode) devrede; 1 GB'de servis olumlerini azaltir.
+ro.board_ram_size=mid
+ro.config.low_ram=true

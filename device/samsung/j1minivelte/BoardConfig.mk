@@ -31,3 +31,9 @@ TARGET_RECOVERY_DEVICE_MODULES := libinit_j1minivelte
 # icin ILK satir kazanir -> cihaza ozel dosya once gelmeli.
 TARGET_SYSTEM_PROP := device/samsung/j1minivelte/system.prop \
                       device/samsung/sharkls-common/system.prop
+
+# Ekran: sharkls-common J3 2016 (j320fn, 720x1280) degerini ezer.
+# Gercek panel 480x800 (kernel DTS: gen-panel-xres=480, yres=800).
+# Tuketici: vendor/lineage/bootanimation/Android.mk -> bootanimation desc.txt.
+TARGET_SCREEN_HEIGHT := 800
+TARGET_SCREEN_WIDTH := 480

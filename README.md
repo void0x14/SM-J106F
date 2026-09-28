@@ -717,4 +717,10 @@ fstab yollarıyla aynı. Ayrı TWRP indirmeye gerek yok. Ayrıntı ve ölçüm:
   ölümcül olmayan rc importu, charger modu servis düzeltmesi
 - `docs/ROOT-ERISIM.md` — root varsayılan kapalı; Developer options ile açılır,
   zincirin her halkası kaynaktan doğrulandı
+- `docs/RAM-ZRAM.md` — servis ölümlerinin kökü: `CONFIG_ZRAM` düşürülmüş ve
+  `service zram` rc'den silinmişti; ölçüm + düzeltme (1 GB cihaz için kritik)
+- `docs/EKRAN-YOGUNLUK.md` — panel 480x800/hdpi; J3'ten (720x1280/xhdpi) miras
+  kalan ekran/aapt değerlerinin ölçümü ve düzeltmesi
+- `docs/DOSYA-SISTEMI.md` — f2fs'siz çekirdeğe karşı f2fs-first fstab kusuru ve
+  düzeltmesi
 - `docs/arastirma-raporu.md`, `docs/arastirma-raporu-2.md` — ROM araştırması

@@ -62,6 +62,20 @@ echo "== ekran =="
 chk "lcd_density 240 yazilmis"       "unzip -p '$Z' system/build.prop | head -70 | grep -c 'ro.sf.lcd_density=240'"
 chk "lcd_density 240 once geliyor"   "[ \$(unzip -p '$Z' system/build.prop | grep -n 'ro.sf.lcd_density=240' | head -1 | cut -d: -f1) -lt \$(unzip -p '$Z' system/build.prop | grep -n 'ro.sf.lcd_density=320' | head -1 | cut -d: -f1) ]"
 chk "lcd_width/height 56/94"         "unzip -p '$Z' system/build.prop | head -70 | grep -c 'ro.sf.lcd_height=94'"
+chk "aapt tercihi hdpi, xhdpi'den once" "[ \$(unzip -p '$Z' system/build.prop | grep -n 'ro.build.aapt.config.prefer=hdpi' | head -1 | cut -d: -f1) -lt \$(unzip -p '$Z' system/build.prop | grep -n 'ro.build.aapt.config.prefer=xhdpi' | head -1 | cut -d: -f1) ]"
+chk "bootanimation 480 genislik"     "[ \"\$(unzip -p '$P/system/media/bootanimation.zip' desc.txt 2>/dev/null | head -1 | cut -d' ' -f1)\" = 480 ]"
+
+echo "== RAM / zram =="
+# 1 GB cihaz: zram olmadan bellek baskisinda servisler olur. Cekirdek +
+# ramdisk + prop ucunun de birlikte olmasi gerekir.
+chk "cekirdekte CONFIG_ZRAM=y"       "grep -c '^CONFIG_ZRAM=y' '$P/obj/KERNEL_OBJ/.config'"
+chk "vmlinux'ta zram surucusu"       "strings '$P/obj/KERNEL_OBJ/vmlinux' | grep -c 'zram'"
+# Blok-OTA: system icerigi zip'te ayri dosya degil, system.new.dat.br icinde.
+# Bu yuzden system/... yollarini urun agacindan dogrulariz (new.dat.br ondan uretilir).
+chk "zram.sh /system/xbin'de"        "grep -c 'disksize' '$P/system/xbin/zram.sh'"
+chk "ramdisk'te service zram"        "bash '$S/zram-kanit.sh' '$Z'"
+chk "board_ram_size=mid once geliyor" "[ \$(unzip -p '$Z' system/build.prop | grep -n 'ro.board_ram_size=mid' | head -1 | cut -d: -f1) -lt \$(unzip -p '$Z' system/build.prop | grep -n 'ro.board_ram_size=high' | head -1 | cut -d: -f1) ]"
+chk "low_ram=true once geliyor"      "[ \$(unzip -p '$Z' system/build.prop | grep -n 'ro.config.low_ram=true' | head -1 | cut -d: -f1) -lt \$(unzip -p '$Z' system/build.prop | grep -n 'ro.config.low_ram=false' | head -1 | cut -d: -f1) ]"
 
 echo "== root =="
 # WITH_SU, product makefile'inda ilk inherit'ten ONCE verilmeli; BoardConfig'te
