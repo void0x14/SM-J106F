@@ -20,3 +20,10 @@ $(call inherit-product-if-exists, vendor/samsung/j1minivelte/j1minivelte-vendor.
 
 # Inherit from sharkls-common
 $(call inherit-product, device/samsung/sharkls-common/sharkls.mk)
+
+# libedmnativehelper: stok blob setinde yok, ama vendor/lib/hw/bluetooth.default.so
+# DT_NEEDED ile istiyor ve BIND_NOW ile bagli. Eksikse bionic yukleyici
+# bluetooth.default.so'yu hic acmaz -> Bluetooth sessizce olur.
+# Ayni adla derleyip vendor/lib'e kuruyoruz. Kaynak: libshims/edmnativehelper_shim.c
+PRODUCT_PACKAGES += \
+    libedmnativehelper

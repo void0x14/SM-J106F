@@ -361,6 +361,33 @@ doğru `recovery.tar`'ı reddediyordu.
 
 Flash öncesi mutlaka yedeklenmeli: `efs`, `l_modem`, `nvitem`, `prodnv`.
 
+### Servis yolu etiketi (SELinux)
+
+Derleme her zaman geçer; `file_contexts` kuralı eksikse hata çıkmaz. Hata
+yalnızca cihazda görünür ve **sessizdir**: `init` servis ikilisinden domain
+türetemez (`system/core/init/service.cpp:730` `ComputeContextFromExecutable`),
+`Start()` false döner, logda tek satır bile çıkmaz.
+
+`TARGET_COPY_OUT_VENDOR` ayarlı olmadığı için `e2fsdroid` imajı `/system/vendor/...`
+önekiyle etiketler. AOSP'nin yakalayıcısı
+(`system/sepolicy/private/file_contexts:281`)
+`/(vendor|system/vendor)(/.*)?` → `vendor_file` olduğu için, cihaz kuralı bu
+alternasyonu içermiyorsa **genel etiket kazanır**.
+
+`/(vendor|system/vendor)/bin/rild` kuralı bu yüzden gerekliydi: cihazın kendi
+`rild`'i (`device/samsung/sharkls-common/ril/rild`, `BOARD_PROVIDES_RILD=true`
+ile AOSP'ninki devre dışı) `bin/rild`'e kurulur; tek `bin/rild` kuralı
+`system/sepolicy/vendor/file_contexts:28`'de **`bin/hw/rild`** içindir, o dosya
+imajda yok. Sonuç: `rild` + `ril-daemon1` servisleri ENFORCING'de ölü.
+
+İki bağımsız ölçüm aynı sonucu vermeli — biri `file_contexts` metninden
+tahmin eder, öbürü imajın gerçek xattr'ını okur:
+
+```bash
+python3 scripts/init-denetle.py <system-agaci> - <out>/root
+sudo bash scripts/etiket-sayim.sh <system.img>
+```
+
 ## Doğrulama
 
 `scripts/dogrula.sh` — 18/18. Çıktıların var olduğunu ve cihaza uygunluğunu sınar.
@@ -372,6 +399,8 @@ boşluğu kapatır. Hiçbiri diğerinin yerine geçmez:
 | --- | --- |
 | `boot-zinciri.py` | etkin cmdline → `ro.hardware`, rc import grafiği, ramdisk yerleşimi |
 | `init-denetle.py` | her init servis ikilisi yerinde + etiketli + domain geçişi tanımlı |
+| `etiket-sayim.sh` | aynı soruyu imajın **gerçek xattr**'ından yanıtlar (init-denetle metinden tahmin eder; ikisi bağımsız ölçüm) |
+| `elf-kapanis.py` | `DT_NEEDED` kapanışı + çözülemeyen sembol (sessiz yükleyici hatası sınıfı) |
 | `kernel-kanit.sh` | zip içindeki `boot.img` çekirdeğinde `binder,hwbinder,vndbinder` var |
 | `ota-sistem-kanit.sh` | zip içindeki sistem, doğrulanmış `system.img` ile **bit bit** aynı |
 | `govde-test.sh` | koruma red matrisi + PIT ayrıştırıcı (cihaz gerekmez) |
@@ -427,4 +456,6 @@ ilk denemede 456 blok yazıldı ve dosya sistemi okunamadı.
 - `docs/plan.md` — ana plan, kararlar, riskler
 - `docs/ISP-BULGU.md` — ISP arayüz uyuşmazlığı ve çözümü (kritik)
 - `docs/BINDER-BULGU.md` — binder ABI uyuşmazlığı ve çözümü (kritik, boot blocker)
+- `docs/YUKLEYICI-BULGU.md` — sessiz yükleyici hataları: eksik `DT_NEEDED`,
+  çözülemeyen sembol (kritik, hiç hata mesajı üretmez)
 - `docs/arastirma-raporu.md`, `docs/arastirma-raporu-2.md` — ROM araştırması

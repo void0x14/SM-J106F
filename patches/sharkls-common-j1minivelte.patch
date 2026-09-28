@@ -831,10 +831,10 @@ index e07af20..4eab2de 100644
 +# GPS NVRAM (grandneove3g Oreo portundan)
 +type gps_data_file, file_type, data_file_type;
 diff --git a/sepolicy/file_contexts b/sepolicy/file_contexts
-index 0069d12..4bfd3b9 100644
+index 0069d12..db725e4 100644
 --- a/sepolicy/file_contexts
 +++ b/sepolicy/file_contexts
-@@ -76,46 +76,46 @@
+@@ -76,46 +76,47 @@
  #############################
  # System files
  #
@@ -880,6 +880,7 @@ index 0069d12..4bfd3b9 100644
 +/(vendor|system/vendor)/bin/phoneserver u:object_r:rild_exec:s0
 +/(vendor|system/vendor)/bin/modem_control u:object_r:modem_control_exec:s0
 +/(vendor|system/vendor)/bin/rild_sp u:object_r:rild_exec:s0
++/(vendor|system/vendor)/bin/rild u:object_r:rild_exec:s0
 +/(vendor|system/vendor)/bin/cp_diskserver u:object_r:cp_diskserver_exec:s0
 +/(vendor|system/vendor)/bin/download    u:object_r:download_exec:s0
 +/(vendor|system/vendor)/bin/gnss_download    u:object_r:gnss_download_exec:s0
@@ -913,7 +914,7 @@ index 0069d12..4bfd3b9 100644
  ############################
  #for sharkl64
  #
-@@ -136,14 +136,12 @@
+@@ -136,14 +137,12 @@
  /data/cg(/.*)? u:object_r:cg_file:s0
  /data/local/factorytest_log(/.*)?    u:object_r:mmitest_file:s0
  #for slog
@@ -928,7 +929,7 @@ index 0069d12..4bfd3b9 100644
  /data/sprdinfo(/.*)? u:object_r:apr_data_file:s0
  /data/apr.conf u:object_r:apr_data_file:s0
  
-@@ -154,8 +152,26 @@
+@@ -154,8 +153,26 @@
  /data/.battery_nv		u:object_r:self_system_data_file:s0
  
  #for ylog
