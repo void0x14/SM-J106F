@@ -28,7 +28,7 @@ device/samsung/j1minivelte/     cihaz ağacı (BoardConfig, lineage.mk, init, ov
 vendor/samsung/j1minivelte/     proprietary blob'lar + device-vendor-blobs.mk
 patches/                        derleme sırasında gereken yamalar
 manifest/j106f.xml              repo local_manifest
-scripts/                        derleme ortamı betikleri
+scripts/                        derleme ortamı + kanıt betikleri
 docs/                           plan ve araştırma raporları
 ```
 
@@ -277,6 +277,49 @@ firmware'ini `melfas/j1minilte.fw` yoluyla taşır. Ham arama bunu cihaz kimliğ
 doğru `recovery.tar`'ı reddediyordu.
 
 Flash öncesi mutlaka yedeklenmeli: `efs`, `l_modem`, `nvitem`, `prodnv`.
+
+## Doğrulama
+
+`scripts/dogrula.sh` — 18/18. Çıktıların var olduğunu ve cihaza uygunluğunu sınar.
+
+Üç kanıt scripti, "derledim" ile "cihaza giden şey gerçekten o" arasındaki boşluğu
+kapatır. Hiçbiri diğerinin yerine geçmez:
+
+| Script | Kanıtladığı |
+| --- | --- |
+| `kernel-kanit.sh` | zip içindeki `boot.img` çekirdeğinde `binder,hwbinder,vndbinder` var |
+| `ota-sistem-kanit.sh` | zip içindeki sistem, doğrulanmış `system.img` ile **bit bit** aynı |
+| `govde/j106f-flash.mjs` | yanlış imajın yazılması teknik olarak imkânsız |
+
+### kernel-kanit.sh
+
+`strings zImage | grep hwbinder` **yanlış negatif** verir: çekirdek sıkıştırılmış
+bir zImage'dir ve dize iç gzip akışının içindedir. Script doğru yolu izler:
+
+```
+zip -> boot.img -> ANDROID! başlığı -> çekirdek dilimi -> iç gzip -> dize sayımı
+```
+
+Ölçüldü: çekirdek 5.492.592 B, iç gzip ofseti `0x4131`, çözülen 12.481.912 B,
+`binder,hwbinder,vndbinder` sayısı 1, sürüm `3.10.65-g19cb2671-dirty`.
+
+### ota-sistem-kanit.sh
+
+Android 8.1 blok-OTA kullanır: zip içinde `system.img` yoktur,
+`system.new.dat.br` + `system.transfer.list` vardır. "Zip'te system var" demek
+yetmez; **içeriğin** derlenen sistem olduğunu göstermek gerekir.
+
+```
+zip -> brotli -> transfer.list blok haritası -> ham ext4
+    -> debugfs rdump -> dosya dosya sha256
+```
+
+Ölçüldü: 2678 girdi (dosya + symlink) yapı birebir aynı, 2098 normal dosya
+sha256 birebir aynı.
+
+`transfer.list` tuzağı: `new 2,0,1024` iki tam sayı = **tek** `(baş,bitiş)`
+aralığı `[0,1024)`, yani 1024 blok. Değerleri tek tek blok sanmak imajı bozar —
+ilk denemede 456 blok yazıldı ve dosya sistemi okunamadı.
 
 ## Belgeler
 
