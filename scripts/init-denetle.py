@@ -124,6 +124,22 @@ def var_mi(yol):
     g = coz(yol)
     return None if g is None else os.path.exists(g)
 
+def gercek_yol(yol):
+    """init `getfilecon()` kullanir; libselinux getfilecon.c:22
+    `getxattr(path,...)` cagirir ve bu SYMLINK'LERI TAKIP EDER. Yani
+    /system/bin/umount -> toybox ise etiket toybox'inki olur. Etiket
+    denetimi bu yuzden cozulmus yol uzerinde yapilmali."""
+    g = coz(yol)
+    if g is None or not os.path.exists(g):
+        return yol
+    r = os.path.realpath(g)
+    for onek, gercek in kokler:
+        if r == gercek:
+            return onek
+        if r.startswith(gercek + os.sep):
+            return onek + "/" + os.path.relpath(r, gercek)
+    return yol
+
 
 def baska_bolumde_ara(yol):
     """rc'nin gosterdigi yol yoksa, ayni dosya adi imajin baska yerinde var mi?"""
@@ -186,9 +202,13 @@ for yol in sorted(servisler):
         if seclabeler[yol] not in domainler:
             seclabel_yok.append((yol, seclabeler[yol]))
         continue
-    et = etiket_bul(yol)
+    hedef = gercek_yol(yol)
+    et = etiket_bul(hedef)
+    # servisler[] anahtari her zaman GERCEK rc yoludur; symlink varsa
+    # yalnizca gosterimde "yol -> hedef" yazilir
+    gosterim = yol if hedef == yol else f"{yol} -> {hedef}"
     if et is None or et in GENEL_ETIKET:
-        etiketsiz.append((yol, et))
+        etiketsiz.append((gosterim, et, yol))
 
 
 # --------------------------------------------------------------------- rapor
@@ -205,7 +225,8 @@ def bas(ad, liste, aciklama):
     print(f"\n{ad} ({len(liste)}): {aciklama}")
     for oge in liste:
         yol = oge[0]
-        kim = ", ".join(f"{a}:{b}:{c}" for a, b, c in servisler[yol])
+        anahtar = oge[2] if len(oge) > 2 else yol
+        kim = ", ".join(f"{a}:{b}:{c}" for a, b, c in servisler[anahtar])
         if ad == "YANLIS YOL":
             print(f"  ✘ rc: {yol}\n    gercek: {oge[1]}\n    {kim}")
         elif ad == "ETIKETSIZ":

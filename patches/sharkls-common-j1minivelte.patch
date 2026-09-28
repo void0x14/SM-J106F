@@ -34,6 +34,495 @@ index 7bfcf69..a58cffd 100644
  
  BOARD_NEEDS_MEMORYHEAPION_SPRD := true
  BOARD_USE_EMMC := true
+diff --git a/cmd_services/Android.mk b/cmd_services/Android.mk
+new file mode 100644
+index 0000000..2e1cf5e
+--- /dev/null
++++ b/cmd_services/Android.mk
+@@ -0,0 +1,10 @@
++LOCAL_PATH := $(call my-dir)
++
++include $(CLEAR_VARS)
++LOCAL_MODULE := cmd_services
++LOCAL_MODULE_TAGS := optional
++LOCAL_SRC_FILES := cmd_services.c
++LOCAL_SHARED_LIBRARIES := libcutils libutils liblog
++LOCAL_CFLAGS := -Wall -Wno-unused-parameter
++LOCAL_MODULE_PATH := $(TARGET_OUT_VENDOR_EXECUTABLES)
++include $(BUILD_EXECUTABLE)
+diff --git a/cmd_services/cmd_services.c b/cmd_services/cmd_services.c
+new file mode 100644
+index 0000000..dee7008
+--- /dev/null
++++ b/cmd_services/cmd_services.c
+@@ -0,0 +1,98 @@
++#include <stdlib.h>
++#include <stdio.h>
++#include <string.h>
++#include <unistd.h>
++#include <dirent.h>
++#include <signal.h>
++#include <sys/stat.h>
++#include <errno.h>
++#include <cutils/properties.h>
++#include <pthread.h>
++#include <utils/Log.h>
++#include <sys/socket.h>
++#include <sys/types.h>
++#include <sys/un.h>
++#include <cutils/sockets.h>
++
++#define CMD_SERVICE "cmd_skt"
++#define MAX_BUF_LEN 4096
++
++void *root_cmd_parser(void *arg)
++{
++     int service_fd, connect_fd;
++     socklen_t server_len, client_len;
++     static char recv_buf[MAX_BUF_LEN];
++     static char read_buf[MAX_BUF_LEN];
++     static char send_buf[MAX_BUF_LEN];
++     struct sockaddr_un client_address;
++
++     unlink(CMD_SERVICE);
++
++     service_fd = socket_local_server(CMD_SERVICE,ANDROID_SOCKET_NAMESPACE_ABSTRACT, SOCK_STREAM);
++
++     if ((connect_fd = accept(service_fd, (struct sockaddr *)&client_address, &client_len)) < 0)
++     {
++          ALOGD("accept socket failed!");
++          close(service_fd);
++          return NULL;
++     }
++
++     ALOGD("rootcmd_parser service is waitting!\n");
++
++     while(1)
++     {
++          memset(recv_buf, '\0', sizeof(recv_buf));
++          if(read(connect_fd, recv_buf, sizeof(recv_buf)) <= 0)
++          {
++               ALOGD("recv cmd error!\n");
++               break;
++          }
++
++          strcat(recv_buf," 2>&1");
++
++          FILE *file = popen(recv_buf, "r");
++          if(file == NULL)
++          {
++               ALOGD("cannot creat Result file!\n");
++               write(connect_fd,"Result\n",strlen("Result\n"));
++               break;
++          }
++
++          memset(send_buf, '\0', sizeof(send_buf));
++          if(fread(send_buf, sizeof(char), sizeof(send_buf), file) <= 0)
++          {
++               ALOGD("read command echo error!\n");
++          }
++
++          while(!feof(file))
++          {
++               memset(read_buf, '\0', sizeof(read_buf));
++               if(fread(read_buf, sizeof(char), sizeof(read_buf), file) <= 0)
++               {
++                    ALOGD("read command echo error!\n");
++                    break;
++               }
++               strcat(send_buf,read_buf);
++          }
++
++          pclose(file);
++          strcat(send_buf,"Result\n");
++          if(write(connect_fd, send_buf, strlen(send_buf)) <= 0)
++          {
++               ALOGD("send cmd echo failed!\n");
++          }
++
++          //ALOGD("sendbuf is %.*s \n",strlen(send_buf), send_buf);
++     }
++
++     close(service_fd);
++     return NULL;
++}
++
++int main(int argc, char *argv[])
++{
++     pthread_t tid_rootcmd_monitor;
++     pthread_create(&tid_rootcmd_monitor,NULL,root_cmd_parser,NULL);
++     pthread_join(tid_rootcmd_monitor , NULL);
++     return 0;
++}
+diff --git a/init/Android.mk b/init/Android.mk
+index dacd5c1..fcec02c 100644
+--- a/init/Android.mk
++++ b/init/Android.mk
+@@ -8,14 +8,6 @@ LOCAL_MODULE_PATH := $(TARGET_OUT_VENDOR_ETC)/init
+ LOCAL_SRC_FILES := init_rc/at_distributor.rc
+ include $(BUILD_PREBUILT)
+ 
+-include $(CLEAR_VARS)
+-LOCAL_MODULE := autotest.rc
+-LOCAL_MODULE_TAGS := optional
+-LOCAL_MODULE_CLASS := ETC
+-LOCAL_MODULE_PATH := $(TARGET_OUT_VENDOR_ETC)/init
+-LOCAL_SRC_FILES := init_rc/autotest.rc
+-include $(BUILD_PREBUILT)
+-
+ include $(CLEAR_VARS)
+ LOCAL_MODULE := bcsdaemon.rc
+ LOCAL_MODULE_TAGS := optional
+@@ -160,14 +152,6 @@ LOCAL_MODULE_PATH := $(TARGET_OUT_VENDOR_ETC)/init
+ LOCAL_SRC_FILES := init_rc/modemd.rc
+ include $(BUILD_PREBUILT)
+ 
+-include $(CLEAR_VARS)
+-LOCAL_MODULE := modemDriver.rc
+-LOCAL_MODULE_TAGS := optional
+-LOCAL_MODULE_CLASS := ETC
+-LOCAL_MODULE_PATH := $(TARGET_OUT_VENDOR_ETC)/init
+-LOCAL_SRC_FILES := init_rc/modemDriver.rc
+-include $(BUILD_PREBUILT)
+-
+ include $(CLEAR_VARS)
+ LOCAL_MODULE := p2p_supplicant.rc
+ LOCAL_MODULE_TAGS := optional
+@@ -280,10 +264,3 @@ LOCAL_MODULE_PATH := $(TARGET_OUT_VENDOR_ETC)/init
+ LOCAL_SRC_FILES := init_rc/wpa_supplicant.rc
+ include $(BUILD_PREBUILT)
+ 
+-include $(CLEAR_VARS)
+-LOCAL_MODULE := zram.rc
+-LOCAL_MODULE_TAGS := optional
+-LOCAL_MODULE_CLASS := ETC
+-LOCAL_MODULE_PATH := $(TARGET_OUT_VENDOR_ETC)/init
+-LOCAL_SRC_FILES := init_rc/zram.rc
+-include $(BUILD_PREBUILT)
+diff --git a/init/init_rc.mk b/init/init_rc.mk
+index 848ee6a..08da48c 100644
+--- a/init/init_rc.mk
++++ b/init/init_rc.mk
+@@ -1,7 +1,6 @@
+ 
+ PRODUCT_PACKAGES += \
+     at_distributor.rc \
+-    autotest.rc \
+     bcsdaemon.rc \
+     charon.rc \
+     chown_service.rc \
+@@ -20,7 +19,6 @@ PRODUCT_PACKAGES += \
+     mfgloader.rc \
+     modem_control.rc \
+     modemd.rc \
+-    modemDriver.rc \
+     p2p_supplicant.rc \
+     phoneserver.rc \
+     prepare_param.rc \
+@@ -31,9 +29,7 @@ PRODUCT_PACKAGES += \
+     slogmodem.rc \
+     smddaemon.rc \
+     smd_symlink.rc \
+-    sswap.rc \
+     umount_service.rc \
+     wcnd.rc \
+     wlandutservice.rc \
+     wpa_supplicant.rc \
+-    zram.rc
+diff --git a/init/init_rc/at_distributor.rc b/init/init_rc/at_distributor.rc
+index 9a9ae01..181927e 100644
+--- a/init/init_rc/at_distributor.rc
++++ b/init/init_rc/at_distributor.rc
+@@ -1,5 +1,5 @@
+ # AT Distributor for factory test
+-service at_distributor /system/bin/at_distributor
++service at_distributor /vendor/bin/at_distributor
+     class late_start
+     user root
+     group radio misc log
+diff --git a/init/init_rc/autotest.rc b/init/init_rc/autotest.rc
+deleted file mode 100644
+index 705b885..0000000
+--- a/init/init_rc/autotest.rc
++++ /dev/null
+@@ -1,5 +0,0 @@
+-service autotest /vendor/bin/autotest
+-    class main
+-    disabled
+-    user root
+-    oneshot
+diff --git a/init/init_rc/bcsdaemon.rc b/init/init_rc/bcsdaemon.rc
+index a25ba79..4f13205 100644
+--- a/init/init_rc/bcsdaemon.rc
++++ b/init/init_rc/bcsdaemon.rc
+@@ -1,4 +1,4 @@
+-service BCS-daemon /system/bin/connfwexe
++service BCS-daemon /vendor/bin/connfwexe
+     class main
+     user root
+     group system radio inet net_raw
+diff --git a/init/init_rc/chown_service.rc b/init/init_rc/chown_service.rc
+index ff65c4e..7c764c2 100644
+--- a/init/init_rc/chown_service.rc
++++ b/init/init_rc/chown_service.rc
+@@ -1,5 +1,5 @@
+ #change owner
+-service chown_service /system/bin/ext_chown.sh -c
++service chown_service /vendor/bin/ext_data.sh -c
+     class main
+     user root
+     oneshot
+diff --git a/init/init_rc/cmd_services.rc b/init/init_rc/cmd_services.rc
+index 2c6d521..251aa3b 100644
+--- a/init/init_rc/cmd_services.rc
++++ b/init/init_rc/cmd_services.rc
+@@ -1,4 +1,4 @@
+-service cmd_services /system/bin/cmd_services
++service cmd_services /vendor/bin/cmd_services
+     class main
+     user root
+     disabled
+diff --git a/init/init_rc/data.rc b/init/init_rc/data.rc
+index 68d92df..a55f708 100644
+--- a/init/init_rc/data.rc
++++ b/init/init_rc/data.rc
+@@ -1,11 +1,11 @@
+ #data on
+-service data_on /system/bin/ext_data.sh  -u
++service data_on /vendor/bin/ext_data.sh  -u
+     user root
+     disabled
+     oneshot
+ 
+ #data off
+-service data_off /system/bin/ext_data.sh  -d
++service data_off /vendor/bin/ext_data.sh  -d
+     user root
+     disabled
+     oneshot
+diff --git a/init/init_rc/drdaemon.rc b/init/init_rc/drdaemon.rc
+index 4fc81b6..aa0777e 100644
+--- a/init/init_rc/drdaemon.rc
++++ b/init/init_rc/drdaemon.rc
+@@ -1,4 +1,4 @@
+-service DR-daemon /system/bin/ddexe
++service DR-daemon /vendor/bin/ddexe
+     class main
+     user root
+     group system radio inet net_raw
+diff --git a/init/init_rc/inputfreq.rc b/init/init_rc/inputfreq.rc
+index 709a678..e6a804e 100644
+--- a/init/init_rc/inputfreq.rc
++++ b/init/init_rc/inputfreq.rc
+@@ -1,4 +1,4 @@
+-service  inputfreq  /system/bin/inputfreq.sh
++service  inputfreq  /vendor/bin/inputfreq.sh
+     user root
+     disabled
+     oneshot
+diff --git a/init/init_rc/ipsecdaemon.rc b/init/init_rc/ipsecdaemon.rc
+index 5429050..4b50609 100644
+--- a/init/init_rc/ipsecdaemon.rc
++++ b/init/init_rc/ipsecdaemon.rc
+@@ -1,5 +1,5 @@
+ #IPSec for VOLTE
+-service ipsec-daemon /system/bin/IPSecService
++service ipsec-daemon /vendor/bin/IPSecService
+     class main
+     socket ipsec_socket stream 660 system system
+     user system
+diff --git a/init/init_rc/kill_phone.rc b/init/init_rc/kill_phone.rc
+index 14fafca..f3b295e 100644
+--- a/init/init_rc/kill_phone.rc
++++ b/init/init_rc/kill_phone.rc
+@@ -1,28 +1,28 @@
+ #kill td app
+-service kill_td_phone /system/bin/ext_kill.sh  -t
++service kill_td_phone /vendor/bin/ext_kill.sh  -t
+     user root
+     disabled
+     oneshot
+ 
+ #kill w app
+-service kill_w_phone /system/bin/ext_kill.sh  -w
++service kill_w_phone /vendor/bin/ext_kill.sh  -w
+     user root
+     disabled
+     oneshot
+ #kill lte app
+-service kill_l_phone /system/bin/ext_kill.sh  -l
++service kill_l_phone /vendor/bin/ext_kill.sh  -l
+     user root
+     disabled
+     oneshot
+ 
+ #kill td-lte app
+-service kill_tl_phone /system/bin/ext_kill.sh  -tl
++service kill_tl_phone /vendor/bin/ext_kill.sh  -tl
+     user root
+     disabled
+     oneshot
+ 
+ #kill lte-fdd app
+-service kill_lf_phone /system/bin/ext_kill.sh  -lf
++service kill_lf_phone /vendor/bin/ext_kill.sh  -lf
+     user root
+     disabled
+     oneshot
+diff --git a/init/init_rc/macloader.rc b/init/init_rc/macloader.rc
+index a01a2d9..112ea72 100644
+--- a/init/init_rc/macloader.rc
++++ b/init/init_rc/macloader.rc
+@@ -1,3 +1,3 @@
+-service macloader /system/bin/macloader
++service macloader /vendor/bin/macloader
+     class main
+     oneshot
+diff --git a/init/init_rc/mfgloader.rc b/init/init_rc/mfgloader.rc
+index c52fce5..14fb0d5 100644
+--- a/init/init_rc/mfgloader.rc
++++ b/init/init_rc/mfgloader.rc
+@@ -1,5 +1,5 @@
+ # start for WiFi MFG (TestMode)
+-service mfgloader /system/bin/mfgloader
++service mfgloader /vendor/bin/mfgloader
+     class main
+     disabled
+     oneshot
+diff --git a/init/init_rc/modemDriver.rc b/init/init_rc/modemDriver.rc
+deleted file mode 100644
+index f01bea0..0000000
+--- a/init/init_rc/modemDriver.rc
++++ /dev/null
+@@ -1,5 +0,0 @@
+-#volte
+-service modemDriver /system/bin/modemDriver_vpad_main
+-    class core
+-    user root
+-    group system radio shell
+diff --git a/init/init_rc/modemd.rc b/init/init_rc/modemd.rc
+index 61d7037..3334780 100644
+--- a/init/init_rc/modemd.rc
++++ b/init/init_rc/modemd.rc
+@@ -1,4 +1,4 @@
+-service modemd /system/bin/modemd
++service modemd /vendor/bin/modemd
+     class core
+     user system
+     group system radio shell
+diff --git a/init/init_rc/phoneserver.rc b/init/init_rc/phoneserver.rc
+index e645042..fd1d266 100644
+--- a/init/init_rc/phoneserver.rc
++++ b/init/init_rc/phoneserver.rc
+@@ -1,32 +1,32 @@
+-service phoneserver_t /system/bin/phoneserver -m t
++service phoneserver_t /vendor/bin/phoneserver -m t
+     class core
+     user root
+     group radio system shell dhcp
+     disabled
+     oneshot
+ 
+-service phoneserver_w /system/bin/phoneserver -m w
++service phoneserver_w /vendor/bin/phoneserver -m w
+     class core
+     user root
+     group radio system shell dhcp
+     disabled
+     oneshot
+ 
+-service phoneserver_l /system/bin/phoneserver -m l
++service phoneserver_l /vendor/bin/phoneserver -m l
+     class core
+     user root
+     group radio system shell dhcp
+     disabled
+     oneshot
+ 
+-service phoneserver_tl /system/bin/phoneserver -m tl
++service phoneserver_tl /vendor/bin/phoneserver -m tl
+     class core
+     user root
+     group radio system shell
+     disabled
+     oneshot
+ 
+-service phoneserver_lf /system/bin/phoneserver -m lf
++service phoneserver_lf /vendor/bin/phoneserver -m lf
+     class core
+     user root
+     group radio system shell
+diff --git a/init/init_rc/prepare_param.rc b/init/init_rc/prepare_param.rc
+index 7325ac1..b5024a8 100644
+--- a/init/init_rc/prepare_param.rc
++++ b/init/init_rc/prepare_param.rc
+@@ -1,4 +1,4 @@
+-service prepare_param /system/bin/prepare_param.sh /dev/block/platform/sdio_emmc/by-name/PARAM
++service prepare_param /vendor/bin/prepare_param.sh /dev/block/platform/sdio_emmc/by-name/PARAM
+     class core
+     user root
+     group root
+diff --git a/init/init_rc/recoveryfreq.rc b/init/init_rc/recoveryfreq.rc
+index e5a9471..6116a07 100644
+--- a/init/init_rc/recoveryfreq.rc
++++ b/init/init_rc/recoveryfreq.rc
+@@ -1,4 +1,4 @@
+-service  recoveryfreq  /system/bin/recoveryfreq.sh
++service  recoveryfreq  /vendor/bin/recoveryfreq.sh
+     user root
+     disabled
+     oneshot
+diff --git a/init/init_rc/set_mac.rc b/init/init_rc/set_mac.rc
+index c1b409f..7b659fc 100644
+--- a/init/init_rc/set_mac.rc
++++ b/init/init_rc/set_mac.rc
+@@ -1,5 +1,5 @@
+ #set mac addr
+-service set_mac /system/bin/ext_chown.sh  -e
++service set_mac /vendor/bin/ext_data.sh  -e
+     user root
+     disabled
+     oneshot
+diff --git a/init/init_rc/smd_symlink.rc b/init/init_rc/smd_symlink.rc
+index 8a5c420..48d2624 100644
+--- a/init/init_rc/smd_symlink.rc
++++ b/init/init_rc/smd_symlink.rc
+@@ -1,5 +1,5 @@
+ #create symlink
+-service smd_symlink /system/bin/ext_symlink.sh -u
++service smd_symlink /vendor/bin/ext_symlink.sh -u
+     user root
+     disabled
+     oneshot
+diff --git a/init/init_rc/smddaemon.rc b/init/init_rc/smddaemon.rc
+index aac4f92..1e43fc8 100644
+--- a/init/init_rc/smddaemon.rc
++++ b/init/init_rc/smddaemon.rc
+@@ -1,4 +1,4 @@
+-service SMD-daemon /system/bin/smdexe
++service SMD-daemon /vendor/bin/smdexe
+     class main
+     user root
+     group system radio inet net_raw
+diff --git a/init/init_rc/wlandutservice.rc b/init/init_rc/wlandutservice.rc
+index 2a3fa15..01fd5e5 100644
+--- a/init/init_rc/wlandutservice.rc
++++ b/init/init_rc/wlandutservice.rc
+@@ -1,4 +1,4 @@
+-service wlandutservice /system/bin/wlandutservice
++service wlandutservice /vendor/bin/wlandutservice
+     class main
+     user system
+     group wifi net_raw net_admin system inet
+diff --git a/init/init_rc/zram.rc b/init/init_rc/zram.rc
+deleted file mode 100644
+index c944554..0000000
+--- a/init/init_rc/zram.rc
++++ /dev/null
+@@ -1,3 +0,0 @@
+-service zram /system/xbin/zram.sh
+-    disabled
+-    oneshot
 diff --git a/rootdir/Android.mk b/rootdir/Android.mk
 index fa546fd..5a561d1 100644
 --- a/rootdir/Android.mk
@@ -231,8 +720,304 @@ index 0000000..96a1369
 +    write /sys/devices/system/cpu/cpufreq/interactive/timer_rate 40000
 +    write /sys/devices/system/cpu/cpufreq/interactive/timer_slack 40000
 +    write /sys/devices/system/cpu/cpufreq/interactive/boostpulse_duration 0
+diff --git a/rootdir/etc/init.sc8830.rc b/rootdir/etc/init.sc8830.rc
+index e2b6338..fb881d6 100755
+--- a/rootdir/etc/init.sc8830.rc
++++ b/rootdir/etc/init.sc8830.rc
+@@ -239,10 +239,6 @@ on property:ro.board_ram_size=high
+     setprop zram.disksize 600
+     write /proc/sys/vm/extra_free_kbytes 4096
+ 
+-on property:ro.config.zram.support=true
+-    write /proc/sys/vm/page-cluster  0
+-    start zram
+-
+ on property:ro.debuggable=1
+     write /sys/kernel/debug/fatal_dump/enable 1
+     chmod 777 /sys/kernel/debug/sc2713-regulator/vddarm/voltage
+@@ -334,9 +330,6 @@ on property:persist.modem.l.enable=1
+ on property:persist.modem.lf.enable=1
+     start refnotify_l
+ 
+-on property:persist.sys.volte.enable=true
+-    start modemDriver
+-
+ # Support Preload install apks
+ on property:persist.sys.storage_preload=1
+     mount ext4 /dev/block/platform/sdio_emmc/by-name/HIDDEN /preload nosuid nodev ro barrier=1
+diff --git a/sepolicy/charon.te b/sepolicy/charon.te
+new file mode 100644
+index 0000000..d6dbc50
+--- /dev/null
++++ b/sepolicy/charon.te
+@@ -0,0 +1,20 @@
++# Strongswan VPN (charon) - IKEv2 daemon
++type charon, domain;
++type charon_exec, exec_type, file_type;
++
++init_daemon_domain(charon)
++
++allow charon self:capability { net_admin net_raw };
++allow charon self:udp_socket { create bind read write ioctl };
++allow charon self:tcp_socket { create bind read write ioctl };
++allow charon self:rawip_socket { create bind read write ioctl };
++allow charon self:netlink_route_socket { create bind read write getattr nlmsg_read };
++allow charon self:netlink_xfrm_socket { create bind read write getattr nlmsg_read };
++allow charon vpn_data_file:dir { read search write add_name remove_name open };
++allow charon vpn_data_file:file { read write open create getattr setattr unlink };
++allow charon system_data_file:dir search;
++allow charon kernel:system module_request;
++allow charon proc_net:file { read open getattr };
++allow charon sysfs:file { read open };
++allow charon proc:file read;
++allow charon netd:unix_stream_socket connectto;
+diff --git a/sepolicy/device.te b/sepolicy/device.te
+index ed50ee3..0b9818e 100644
+--- a/sepolicy/device.te
++++ b/sepolicy/device.te
+@@ -13,3 +13,9 @@ type zram_block_device, dev_type;
+ 
+ type fm_device, dev_type, mlstrustedobject;
+ type autotest_device, dev_type;
++
++# GPS seri portu ve NVRAM dizini (grandneove3g Oreo portundan)
++type gps_serial_device, dev_type;
++
++# PARAM bolumu (/dev/block/platform/sdio_emmc/by-name/PARAM)
++type param_block_device, dev_type;
+diff --git a/sepolicy/ext_data.te b/sepolicy/ext_data.te
+new file mode 100644
+index 0000000..174a8e4
+--- /dev/null
++++ b/sepolicy/ext_data.te
+@@ -0,0 +1,21 @@
++# ext_data.sh - SC9830'in genel amacli script'i. Tek dosya, dort servis:
++#   data_on  -> -u   (IPv6/route/ifup)
++#   data_off -> -d   (ifdown, ip temizle)
++#   set_mac  -> -e   (DNS drop kurallari ekle)
++#   chown_service -> -c (DNS drop kurallari sil)
++# Hepsi /system/bin/sh ile kosar; iptables/ip/toybox cagirir.
++type ext_data, domain;
++type ext_data_exec, exec_type, file_type;
++
++init_daemon_domain(ext_data)
++
++allow ext_data shell_exec:file { read open getattr execute execute_no_trans };
++allow ext_data toolbox_exec:file { read open getattr execute execute_no_trans map };
++allow ext_data self:capability { net_admin net_raw };
++allow ext_data self:rawip_socket { create read write ioctl setopt };
++allow ext_data self:netlink_route_socket { create bind read write getattr nlmsg_read nlmsg_write };
++allow ext_data self:udp_socket { create read write ioctl };
++allow ext_data proc:file { read open };
++allow ext_data proc_net:file { read open getattr };
++allow ext_data sysfs:file { read open write };
++allow ext_data system_data_file:dir search;
+diff --git a/sepolicy/file.te b/sepolicy/file.te
+index e07af20..4eab2de 100644
+--- a/sepolicy/file.te
++++ b/sepolicy/file.te
+@@ -20,3 +20,6 @@ type mlog_file, file_type, data_file_type;
+ 
+ #GNSS
+ type gnss_file, file_type, data_file_type;
++
++# GPS NVRAM (grandneove3g Oreo portundan)
++type gps_data_file, file_type, data_file_type;
+diff --git a/sepolicy/file_contexts b/sepolicy/file_contexts
+index 0069d12..806e41e 100644
+--- a/sepolicy/file_contexts
++++ b/sepolicy/file_contexts
+@@ -76,46 +76,46 @@
+ #############################
+ # System files
+ #
+-/vendor/bin/data_on.sh  u:object_r:data_on_exec:s0
+-/vendor/bin/data_off.sh u:object_r:data_off_exec:s0
+-/vendor/bin/mplayer     u:object_r:mediaserver_exec:s0
+-/vendor/bin/wcnd     	u:object_r:wcnd_exec:s0
+-/vendor/bin/engpc       u:object_r:engpc_exec:s0
+-/vendor/bin/autotest    u:object_r:autotest_exec:s0
+-/vendor/bin/charge u:object_r:charge_exec:s0
++/(vendor|system/vendor)/bin/data_on.sh  u:object_r:data_on_exec:s0
++/(vendor|system/vendor)/bin/data_off.sh u:object_r:data_off_exec:s0
++/(vendor|system/vendor)/bin/mplayer     u:object_r:mediaserver_exec:s0
++/(vendor|system/vendor)/bin/wcnd     	u:object_r:wcnd_exec:s0
++/(vendor|system/vendor)/bin/engpc       u:object_r:engpc_exec:s0
++/(vendor|system/vendor)/bin/autotest    u:object_r:autotest_exec:s0
++/(vendor|system/vendor)/bin/charge u:object_r:charge_exec:s0
+ /system/xbin/zram.sh 	u:object_r:zram_exec:s0
+ /system/xbin/srtd    	u:object_r:srtd_exec:s0
+-/vendor/bin/refnotify   u:object_r:refnotify_exec:s0
+-/vendor/bin/modemd      u:object_r:rild_exec:s0
+-/vendor/bin/phoneserver u:object_r:rild_exec:s0
+-/vendor/bin/modem_control u:object_r:modem_control_exec:s0
+-/vendor/bin/rild_sp u:object_r:rild_exec:s0
+-/vendor/bin/cp_diskserver u:object_r:cp_diskserver_exec:s0
+-/vendor/bin/download    u:object_r:download_exec:s0
+-/vendor/bin/gnss_download    u:object_r:gnss_download_exec:s0
+-/vendor/bin/slogmodem	u:object_r:slogmodem_exec:s0
+-/vendor/bin/factorytest u:object_r:factorytest_exec:s0
+-/vendor/bin/phasecheckserver u:object_r:phasecheckserver_exec:s0
+-/vendor/bin/resize2fs     u:object_r:fsck_exec:s0
+-/vendor/bin/GPSenseEngine       u:object_r:GPSenseEngine_exec:s0
+-
+-/vendor/bin/IPSecService       u:object_r:IPSecService_exec:s0
+-/vendor/bin/at_distributor     u:object_r:at_distributor_exec:s0
+-/vendor/bin/connfwexe          u:object_r:connfwexe_exec:s0
+-/vendor/bin/ddexe              u:object_r:ddexe_exec:s0
+-/vendor/bin/ext_symlink.sh     u:object_r:ext_symlink_exec:s0
+-/vendor/bin/macloader          u:object_r:macloader_exec:s0
+-/vendor/bin/smdexe             u:object_r:smdexe_exec:s0
++/(vendor|system/vendor)/bin/refnotify   u:object_r:refnotify_exec:s0
++/(vendor|system/vendor)/bin/modemd      u:object_r:rild_exec:s0
++/(vendor|system/vendor)/bin/phoneserver u:object_r:rild_exec:s0
++/(vendor|system/vendor)/bin/modem_control u:object_r:modem_control_exec:s0
++/(vendor|system/vendor)/bin/rild_sp u:object_r:rild_exec:s0
++/(vendor|system/vendor)/bin/cp_diskserver u:object_r:cp_diskserver_exec:s0
++/(vendor|system/vendor)/bin/download    u:object_r:download_exec:s0
++/(vendor|system/vendor)/bin/gnss_download    u:object_r:gnss_download_exec:s0
++/(vendor|system/vendor)/bin/slogmodem	u:object_r:slogmodem_exec:s0
++/(vendor|system/vendor)/bin/factorytest u:object_r:factorytest_exec:s0
++/(vendor|system/vendor)/bin/phasecheckserver u:object_r:phasecheckserver_exec:s0
++/(vendor|system/vendor)/bin/resize2fs     u:object_r:fsck_exec:s0
++/(vendor|system/vendor)/bin/GPSenseEngine       u:object_r:GPSenseEngine_exec:s0
++
++/(vendor|system/vendor)/bin/IPSecService       u:object_r:IPSecService_exec:s0
++/(vendor|system/vendor)/bin/at_distributor     u:object_r:at_distributor_exec:s0
++/(vendor|system/vendor)/bin/connfwexe          u:object_r:connfwexe_exec:s0
++/(vendor|system/vendor)/bin/ddexe              u:object_r:ddexe_exec:s0
++/(vendor|system/vendor)/bin/ext_symlink.sh     u:object_r:ext_symlink_exec:s0
++/(vendor|system/vendor)/bin/macloader          u:object_r:macloader_exec:s0
++/(vendor|system/vendor)/bin/smdexe             u:object_r:smdexe_exec:s0
+ /sbin/sswap                    u:object_r:sswap_exec:s0
+ 
+-/vendor/bin/batterysrv u:object_r:batterysrv_exec:s0
+-/vendor/bin/cmd_services       u:object_r:cmd_services_exec:s0
+-/vendor/bin/modemDriver_vpad_main u:object_r:modemdriver_vpad_exec:s0
++/(vendor|system/vendor)/bin/batterysrv u:object_r:batterysrv_exec:s0
++/(vendor|system/vendor)/bin/cmd_services       u:object_r:cmd_services_exec:s0
++/(vendor|system/vendor)/bin/modemDriver_vpad_main u:object_r:modemdriver_vpad_exec:s0
+ /dev/block/zram0 u:object_r:zram_block_device:s0
+ 
+ /data/modem_log(/.*)?	u:object_r:slogmodem_data:s0
+ /data/local/englog(/.*)?    u:object_r:engpc_data:s0
+-/vendor/bin/thermald        u:object_r:thermald_exec:s0
++/(vendor|system/vendor)/bin/thermald        u:object_r:thermald_exec:s0
+ ############################
+ #for sharkl64
+ #
+@@ -136,14 +136,12 @@
+ /data/cg(/.*)? u:object_r:cg_file:s0
+ /data/local/factorytest_log(/.*)?    u:object_r:mmitest_file:s0
+ #for slog
+-/system/bin/slog u:object_r:slogd_exec:s0
+ /data/slog(/.*)? u:object_r:slog_file:s0
+ 
+ #add for data/local/media
+ /data/local/media(/.*)? u:object_r:media_data_file:s0
+ 
+ # apr files
+-/system/bin/collect_apr u:object_r:aprd_exec:s0
+ /data/sprdinfo(/.*)? u:object_r:apr_data_file:s0
+ /data/apr.conf u:object_r:apr_data_file:s0
+ 
+@@ -154,8 +152,27 @@
+ /data/.battery_nv		u:object_r:self_system_data_file:s0
+ 
+ #for ylog
+-/system/bin/ylog u:object_r:ylog_exec:s0
+ /data/ylog(/.*)? u:object_r:ylog_file:s0
+ 
+ #GNSS
+ /data/gnss(/.*)? u:object_r:gnss_file:s0
++
++# --- rc dosyalarindaki servis yollari icin eksik girisler ---
++/(vendor|system/vendor)/bin/ext_chown.sh u:object_r:ext_data_exec:s0
++/(vendor|system/vendor)/bin/cmd_services u:object_r:cmd_services_exec:s0
++/(vendor|system/vendor)/bin/prepare_param.sh u:object_r:prepare_param_exec:s0
++/(vendor|system/vendor)/bin/charon u:object_r:charon_exec:s0
++/(vendor|system/vendor)/bin/gpsd u:object_r:gpsd_exec:s0
++/(vendor|system/vendor)/bin/mfgloader u:object_r:mfgloader_exec:s0
++/(vendor|system/vendor)/bin/wlandutservice u:object_r:wlandutservice_exec:s0
++/(vendor|system/vendor)/bin/slog u:object_r:slogd_exec:s0
++/(vendor|system/vendor)/bin/slogmodem u:object_r:slogmodem_exec:s0
++/(vendor|system/vendor)/bin/slogctl u:object_r:slogmodem_exec:s0
++/(vendor|system/vendor)/bin/flush_slog_modem u:object_r:slogmodem_exec:s0
++/(vendor|system/vendor)/bin/cplogctl u:object_r:slogd_exec:s0
++/(vendor|system/vendor)/bin/hostapd u:object_r:hostapd_exec:s0
++/(vendor|system/vendor)/bin/hw/wpa_supplicant u:object_r:hal_wifi_supplicant_default_exec:s0
++/(vendor|system/vendor)/bin/ext_data.sh u:object_r:ext_data_exec:s0
++/dev/ttyS3 u:object_r:gps_serial_device:s0
++/data/system/gps(/.*)? u:object_r:gps_data_file:s0
++/dev/block/platform/sdio_emmc/by-name/PARAM u:object_r:param_block_device:s0
+diff --git a/sepolicy/gpsd.te b/sepolicy/gpsd.te
+new file mode 100644
+index 0000000..369c8b0
+--- /dev/null
++++ b/sepolicy/gpsd.te
+@@ -0,0 +1,9 @@
++type gpsd, domain;
++type gpsd_exec, exec_type, file_type;
++
++allow gpsd radio_device:chr_file { read write ioctl open };
++allow gpsd sysfs_wake_lock:file { read write open };
++allow gpsd gps_data_file:fifo_file { read write open setattr };
++allow gpsd gps_data_file:file { write lock open };
++allow gpsd gps_serial_device:chr_file { open read write getattr setattr ioctl };
++allow gpsd gpsd_exec:file entrypoint;
+diff --git a/sepolicy/mfgloader.te b/sepolicy/mfgloader.te
+new file mode 100644
+index 0000000..59acb07
+--- /dev/null
++++ b/sepolicy/mfgloader.te
+@@ -0,0 +1,9 @@
++# mfgloader - WiFi MFG (test mode) firmware yukleyici
++type mfgloader, domain;
++type mfgloader_exec, exec_type, file_type;
++
++init_daemon_domain(mfgloader)
++
++allow mfgloader system_data_file:dir search;
++allow mfgloader proc:file { read open };
++allow mfgloader sysfs:file { read open write };
+diff --git a/sepolicy/prepare_param.te b/sepolicy/prepare_param.te
+new file mode 100644
+index 0000000..f1267cb
+--- /dev/null
++++ b/sepolicy/prepare_param.te
+@@ -0,0 +1,13 @@
++# prepare_param.sh - /dev/block/param symlink'ini kurar, PARAM bolumune erisir.
++type prepare_param, domain;
++type prepare_param_exec, exec_type, file_type;
++
++init_daemon_domain(prepare_param)
++
++allow prepare_param shell_exec:file { read open getattr execute execute_no_trans };
++allow prepare_param toolbox_exec:file { read open getattr execute execute_no_trans map };
++allow prepare_param param_block_device:blk_file { read write open getattr };
++allow prepare_param block_device:dir search;
++allow prepare_param device:dir { read write add_name remove_name };
++allow prepare_param device:lnk_file { create unlink };
++allow prepare_param system_data_file:dir search;
+diff --git a/sepolicy/wlandutservice.te b/sepolicy/wlandutservice.te
+new file mode 100644
+index 0000000..6a4ca4f
+--- /dev/null
++++ b/sepolicy/wlandutservice.te
+@@ -0,0 +1,11 @@
++# wlandutservice - WiFi DUT (device under test) servisi
++type wlandutservice, domain;
++type wlandutservice_exec, exec_type, file_type;
++
++init_daemon_domain(wlandutservice)
++
++allow wlandutservice self:capability { net_admin net_raw };
++allow wlandutservice self:tcp_socket { create read write ioctl };
++allow wlandutservice self:udp_socket { create read write ioctl };
++allow wlandutservice system_data_file:dir search;
++allow wlandutservice proc:file { read open };
 diff --git a/sharkls.mk b/sharkls.mk
-index 6f66b79..52f2cc8 100644
+index 6f66b79..6d58468 100644
 --- a/sharkls.mk
 +++ b/sharkls.mk
 @@ -175,8 +175,8 @@ PRODUCT_PACKAGES += \
@@ -246,3 +1031,11 @@ index 6f66b79..52f2cc8 100644
      init.sc8830.rc \
      init.sc8830.usb.rc \
      init.sc8830_ss.rc \
+@@ -274,6 +274,7 @@ PRODUCT_PACKAGES += \
+     audio.primary.sc8830 \
+     liboemcrypto \
+     modem_control \
++    cmd_services \
+     cp_diskserver \
+     phasecheckserver \
+     radvd \
