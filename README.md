@@ -228,6 +228,38 @@ ve satırlar build.prop'a bu sırayla yazılır. Init'te `ro.*` write-once'tır
 Not: `TARGET_SCREEN_DENSITY` bu ağaçta hiçbir yerde tüketilmez — `build/`,
 `bootable/`, `vendor/` tarandı, tüketici yok. Bu yüzden yoğunluk prop'tan verilir.
 
+## Root
+
+`su` paketlenir ama **`WITH_SU` BoardConfig'te verilirse çalışmaz**. Ölçülmüş tuzak:
+
+```
+build/make/core/envsetup.mk:208   include product_config.mk     <- common.mk burada okunur
+build/make/core/envsetup.mk:234   include $(board_config_mk)   <- BoardConfig SONRA
+```
+
+`vendor/lineage/config/common.mk:238` `ifeq ($(WITH_SU),true)` testi BoardConfig
+yüklenmeden önce koşar; değer boş olduğu için `su` `PRODUCT_PACKAGES`'e hiç girmez.
+`get_build_var WITH_SU` sonradan `true` okur — yanıltıcı.
+
+Doğru yer, cihazın product makefile'ı, **ilk `inherit-product`'tan önce**:
+
+```make
+# device/samsung/j1minivelte/lineage.mk
+WITH_SU := true
+$(call inherit-product, $(SRC_TARGET_DIR)/product/full_base_telephony.mk)
+```
+
+Doğrulama (final `system.img`, `debugfs`):
+
+```
+/xbin/su   inode 2844, 0755, uid 0 gid 2000, 276940 B
+/bin/su    symlink -> ../xbin/su
+/etc/init/superuser.rc
+```
+
+SELinux: `(type su)`, `(typetransition shell su_exec process su)`, `(typepermissive su)`
+— `adb shell` sonrası `su` çalışır.
+
 ## Güvenlik
 
 Flash işlemi **gövde koruması** (body guard) altındadır: cihaz izin listesi, bölüm
