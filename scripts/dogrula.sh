@@ -19,21 +19,37 @@ chk() {
 }
 
 echo "== ciktilar =="
-ls -la "$P"/*.zip "$P"/boot.img "$P"/recovery.img "$P"/system.img "$P"/dt.img 2>/dev/null
+ls -la "$P"/*.zip "$P"/boot.img "$P"/recovery.img "$P"/dt.img 2>/dev/null
+
+# Bolum sinirlari SABIT YAZILMAZ: cihazin gercek PIT'inden okunur
+# (docs/pit/*.pit). Sabit yazmak, yanlis bir degeri dogru gibi gosterir —
+# bu tam olarak cozulen hataydi (twrpdtgen 10.978.320 yapintisi).
+PIT_DOSYA=$(ls "$S"/../docs/pit/*.pit 2>/dev/null | head -1)
+if [ -n "$PIT_DOSYA" ]; then
+  PIT_KERNEL=$(python3 "$S/pit-coz.py" "$PIT_DOSYA" --tsv | awk -F'\t' '$1=="KERNEL"{print $2}')
+  PIT_RECOVERY=$(python3 "$S/pit-coz.py" "$PIT_DOSYA" --tsv | awk -F'\t' '$1=="RECOVERY"{print $2}')
+else
+  PIT_KERNEL=""; PIT_RECOVERY=""
+fi
+[ -n "$PIT_KERNEL" ] || { echo "  \033[33m!\033[0m PIT yok — bolum siniri kontrolu atlanacak"; }
 
 echo "== kernel =="
 K="$P/obj/KERNEL_OBJ/arch/arm/boot/zImage"
 chk "zImage var"                     "[ -f '$K' ]"
-chk "zImage boot bolumune sigar (<=10978320)" \
-                                     "[ \$(stat -c %s '$K' 2>/dev/null || echo 99999999) -le 10978320 ]"
+if [ -n "$PIT_KERNEL" ]; then
+  chk "zImage KERNEL bolumune sigar (<=$PIT_KERNEL)" \
+                                     "[ \$(stat -c %s '$K' 2>/dev/null || echo 99999999) -le $PIT_KERNEL ]"
+fi
 chk "hwbinder vmlinux'da"            "strings '$P/obj/KERNEL_OBJ/vmlinux' | grep -c 'binder,hwbinder,vndbinder'"
 chk "CONFIG_ANDROID_BINDER_DEVICES"  "grep -c 'CONFIG_ANDROID_BINDER_DEVICES=\"binder,hwbinder,vndbinder\"' '$P/obj/KERNEL_OBJ/.config'"
 chk "CONFIG_ANDROID_BINDER_IPC_32BIT" "grep -c '^CONFIG_ANDROID_BINDER_IPC_32BIT=y' '$P/obj/KERNEL_OBJ/.config'"
 
 echo "== recovery.img =="
 chk "recovery.img var"               "[ -f '$P/recovery.img' ]"
-chk "recovery.img bolume sigar (<=26214400)" \
-                                     "[ \$(stat -c %s '$P/recovery.img' 2>/dev/null || echo 99999999) -le 26214400 ]"
+if [ -n "$PIT_RECOVERY" ]; then
+  chk "recovery.img RECOVERY bolumune sigar (<=$PIT_RECOVERY)" \
+                                     "[ \$(stat -c %s '$P/recovery.img' 2>/dev/null || echo 99999999) -le $PIT_RECOVERY ]"
+fi
 chk "recovery.tar (Odin) var"        "[ -f '$P/recovery.tar' ]"
 
 echo "== zip =="

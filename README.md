@@ -169,13 +169,26 @@ mka bacon
 ## Cihaz ağacı notları
 
 - `TARGET_KERNEL_SOURCE := kernel/samsung/j1minivelte` — `sharkls-common`'ın
-  `kernel/samsung/sharkls` varsayılanını geçersiz kılar.
+  `kernel/samsung/shandong` varsayılanını geçersiz kılar.
 - `BOARD_KERNEL_IMAGE_NAME := zImage` (sharkls-common'dan gelir). J106F boot bölümü
-  10.978.320 B; zImage ~5.4 MB sığar, sıkıştırılmamış `Image` ~12.4 MB sığmaz.
-- `BOARD_BOOTIMAGE_PARTITION_SIZE := 10978320`
-- `BOARD_RECOVERYIMAGE_PARTITION_SIZE := 26214400`
+  20.971.520 B; zImage ~5.4 MB sığar.
+- `BOARD_BOOTIMAGE_PARTITION_SIZE := 20971520`
+- `BOARD_RECOVERYIMAGE_PARTITION_SIZE := 20971520`
 - `BOARD_KERNEL_PAGESIZE := 2048`, `BOARD_KERNEL_BASE := 0x00000000`
 - `TARGET_COPY_OUT_VENDOR` ayarlı değil → varsayılan `system/vendor`.
+
+Bölüm boyutları tahmin değil: cihazın **kendi PIT tablosundan** ölçüldü
+(`docs/PIT-GERCEK.md`, `docs/pit/J1MINIVELTE_MEA_JV.pit`). Cihaz olmadan
+doğrulanır:
+
+```bash
+bash scripts/stok-indir.sh     # stok firmware → PIT (cihaz gerekmez)
+bash scripts/pit-dogrula.sh docs/pit/J1MINIVELTE_MEA_JV.pit
+```
+
+Sonuç: KERNEL ve RECOVERY 20.971.520 B — `sharkls-common` değeri doğru.
+Dolaşımdaki `10.978.320` değeri bir **dump edilen imaj dosyasının boyutu**
+(twrpdtgen `origsize`), bölüm boyu değil; 512'ye bölünmez.
 
 ## Önyükleme zinciri
 
@@ -451,9 +464,28 @@ python3 scripts/init-denetle.py <system-agaci> - <out>/root
 sudo bash scripts/etiket-sayim.sh <system.img>
 ```
 
+## Bölüm tablosu — gerçek PIT
+
+Cihazın **kendi** PIT tablosu ölçüldü. Stok firmware'in CSC tar'ından çıkarıldı,
+repoda durur (`docs/pit/J1MINIVELTE_MEA_JV.pit`), cihazın bağlı olması gerekmez.
+
+| Bölüm | Boyut | Kaybı |
+|---|---|---|
+| `efs` | 20.971.520 B (20 MiB) | IMEI, şebeke |
+| `l_modem` | 16.777.216 B (16 MiB) | RF kalibrasyonu |
+| `l_fixnv2` | 1.048.576 B (1 MiB) | NV verisi |
+| `prodnv` | 5.242.880 B (5 MiB) | ürün bilgisi |
+| `PERSDATA` | 9.437.184 B (9 MiB) | kalıcı veri |
+| `PARAM` | 2.097.152 B (2 MiB) | boot parametreleri |
+
+Tam tablo (32 bölüm), kaynak sha256'ları ve çözülen boyut çelişkisi:
+`docs/PIT-GERCEK.md`.
+
 ## Doğrulama
 
 `scripts/dogrula.sh` — 18/18. Çıktıların var olduğunu ve cihaza uygunluğunu sınar.
+Bölüm sınırları artık **sabit yazılmaz**: `docs/pit/*.pit`'ten okunur. Sabit
+yazmak yanlış bir değeri doğru gibi gösterir — çözülen hata tam buydu.
 
 Kanıt scriptleri, "derledim" ile "cihaza giden şey gerçekten o" arasındaki
 boşluğu kapatır. Hiçbiri diğerinin yerine geçmez:
@@ -467,9 +499,53 @@ boşluğu kapatır. Hiçbiri diğerinin yerine geçmez:
 | `kernel-kanit.sh` | zip içindeki `boot.img` çekirdeğinde `binder,hwbinder,vndbinder` var |
 | `ota-sistem-kanit.sh` | zip içindeki sistem, doğrulanmış `system.img` ile **bit bit** aynı |
 | `gapps-denetle.sh` | GApps yükü cihaza uyuyor mu: mimari, çakışma, yer, sessiz-hata kapıları |
+| `stok-indir.sh` | stok firmware'i indirir, **gerçek PIT'i** ve referans imajları çıkarır (cihaz gerekmez) |
+| `pit-coz.py` | ham `.pit` ikilisini ve `heimdall print-pit` metnini tek tabloya indirir |
+| `pit-dogrula.sh` | derleme boyutlarını **cihazın gerçek PIT'iyle** ve derlenen imajlarla karşılaştırır |
 | `govde-test.sh` | koruma red matrisi + PIT ayrıştırıcı (cihaz gerekmez) |
 | `kanca-test.mjs` | guard kancasının kararı, model devre dışı (canlı denemede modelin kendi reddi karışabilir) |
 | `govde/j106f-flash.mjs` | yanlış imajın yazılması teknik olarak imkânsız |
+
+### stok-indir.sh + pit-coz.py + pit-dogrula.sh
+
+Bölüm boyutları hakkındaki çelişki **ölçümle** kapandı: cihazın gerçek PIT'i stok
+firmware'in CSC tar'ı içinde gelir, cihazın bağlı olması gerekmez.
+
+```
+archive.org -> stok zip (1.490.482.384 B, sha256 doğrulandı)
+    -> CSC tar -> J1MINIVELTE_MEA_JV.pit (5.276 B, magic 0x12349876, 32 girdi)
+    -> pit-coz.py -> tablo
+```
+
+İki bağımsız okuma yolu aynı 32 satırı verir (sınandı):
+
+```
+python3 scripts/pit-coz.py docs/pit/J1MINIVELTE_MEA_JV.pit --tsv   # ham ikili
+python3 scripts/pit-coz.py /tmp/print-pit.txt              --tsv   # heimdall metni
+diff -> aynı
+```
+
+Ölçülen sonuç — `sharkls-common`'dan miras değerler **doğru**:
+
+| Bölüm | Derleme | Cihaz (PIT) | Sonuç |
+|---|---|---|---|
+| KERNEL | 20.971.520 | 20.971.520 | eşit |
+| RECOVERY | 20.971.520 | 20.971.520 | eşit |
+| CACHE | 209.715.200 | 209.715.200 | eşit |
+| SYSTEM | 2.147.483.648 | 2.902.458.368 | sığar (derleme küçük) |
+
+Dolaşımdaki `10.978.320` değeri **bölüm boyu değil**: twrpdtgen onu
+`image_info.origsize`'tan alır (`device_tree.py:56` =
+`aik_manager.unpackimg(image)`), yani dump edilen imajın dosya boyutu. Stok
+`recovery.img` 10.974.224 B — yapıntı tezi bağımsız doğrulanır. Ayrıca 10.978.320
+512'ye **bölünmez** (21.442,03 blok); bir bölüm boyu sektör hizalı olmak zorunda.
+Ayrıntı: `docs/PIT-GERCEK.md`.
+
+Bootloader cmdline'ı da ölçüldü: stok `sboot.bin` içinde
+`mem=1024M init=/init ram=1024M androidboot.hardware=sc8830` geçiyor — yani
+anahtar stok bootloader'dan geliyor. Stok `j1minive3g-dt_defconfig` onu ayrıca
+`CONFIG_CMDLINE`'da taşıyor ve `CONFIG_CMDLINE_EXTEND=y` ile birleştiriyor;
+ikisi çakışmıyor.
 
 ### kernel-kanit.sh
 
@@ -523,4 +599,6 @@ ilk denemede 456 blok yazıldı ve dosya sistemi okunamadı.
 - `docs/BINDER-BULGU.md` — binder ABI uyuşmazlığı ve çözümü (kritik, boot blocker)
 - `docs/YUKLEYICI-BULGU.md` — sessiz yükleyici hataları: eksik `DT_NEEDED`,
   çözülemeyen sembol (kritik, hiç hata mesajı üretmez)
+- `docs/PIT-GERCEK.md` — cihazın gerçek bölüm tablosu, ölçülmüş; boyut çelişkisinin
+  çözümü ve bootloader cmdline kanıtı
 - `docs/arastirma-raporu.md`, `docs/arastirma-raporu-2.md` — ROM araştırması

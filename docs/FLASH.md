@@ -59,13 +59,32 @@ Partition "boot" does not exist in the specified PIT.
 okur ve yazmadan **önce** `print-pit`'ten bölümün gerçek boyutunu çıkarıp imajın
 sığdığını doğrular.
 
+### 4b. Cihaz olmadan da doğrulanabilir
+
+Cihazın **kendi** PIT tablosu stok firmware'in CSC tar'ı içinde gelir. Repoda
+ölçülmüş hâli durur (`docs/pit/J1MINIVELTE_MEA_JV.pit`), ayrıntısı
+`docs/PIT-GERCEK.md`'de:
+
 ```bash
-bash scripts/pit-dogrula.sh ~/j106f-pit-*.txt
+bash scripts/stok-indir.sh        # stok firmware'i indirir, PIT'i çıkarır (cihaz gerekmez)
+bash scripts/pit-dogrula.sh docs/pit/J1MINIVELTE_MEA_JV.pit
 ```
 
 Bu, PIT'teki gerçek boyutları derleme yapılandırmasıyla (`sharkls-common`'dan
-miras `BOARD_*IMAGE_PARTITION_SIZE`) karşılaştırır. Fark varsa imaj bölüme
-sığmaz; derleme boyutları düzeltilmeden yazılmaz.
+miras `BOARD_*IMAGE_PARTITION_SIZE`) **ve** derlenen imajlarla karşılaştırır.
+Cihaz download mode'a girmeden de aynı karşılaştırma yapılır.
+
+Ölçülmüş sonuç:
+
+```
+  ✔ CACHE      209715200 bayt — esit
+  ✔ KERNEL     20971520 bayt — esit
+  ✔ RECOVERY   20971520 bayt — esit
+  ✔ SYSTEM     derleme 2147483648, cihaz 2902458368 — imaj sigar (derleme kucuk)
+
+  ✔ boot.img       9426960 bayt <= KERNEL 20971520 bayt (sigar)
+  ✔ recovery.img   17291280 bayt <= RECOVERY 20971520 bayt (sigar)
+```
 
 ## 5. TWRP'yi yaz (ilk yazma işlemi)
 
@@ -85,7 +104,7 @@ Araç sırayla şunları ister:
 
 1. İmajın cihaz kodunu (`j1minivelte`) ve `ro.product.device` değerini gösterir.
 2. Bölüm adının izin listesinde olduğunu doğrular (`recovery` ✔).
-3. İmaj boyutunu bölüm sınırıyla karşılaştırır (26.214.400 B).
+3. İmaj boyutunu bölüm sınırıyla karşılaştırır (20.971.520 B — gerçek PIT).
 4. Gerçek bir TTY olduğunu doğrular — bu yüzden ajan çalıştıramaz.
 5. sha256 öneki + `YAZ recovery` yazısını ister.
 6. `heimdall detect` ile cihazı tekrar bulur.
@@ -131,7 +150,7 @@ beklemeden, elle alınır.
 
 ```bash
 # TWRP açıkken, bilgisayardan. Okuma işlemidir; hiçbir şey yazılmaz.
-adb shell 'for B in l_modem l_fixnv2 prodnv efs; do
+adb shell 'for B in l_modem l_fixnv2 prodnv efs PERSDATA PARAM; do
   D=/dev/block/platform/sdio_emmc/by-name/$B
   SZ=$(blockdev --getsize64 $D)
   echo "$B: $SZ bayt"
@@ -139,34 +158,51 @@ adb shell 'for B in l_modem l_fixnv2 prodnv efs; do
 done'
 ```
 
-Boyut, cihazın gerçek PIT'inden okunur — sabit değer varsayılmaz.
+Boyut, cihazın gerçek PIT'inden okunur — sabit değer varsayılmaz. Ölçülmüş
+değerler (`docs/PIT-GERCEK.md`):
+
+| Bölüm | Boyut | Kaybı |
+|---|---|---|
+| `efs` | 20.971.520 B (20 MiB) | IMEI, şebeke |
+| `l_modem` | 16.777.216 B (16 MiB) | RF kalibrasyonu |
+| `l_fixnv2` | 1.048.576 B (1 MiB) | NV verisi |
+| `prodnv` | 5.242.880 B (5 MiB) | ürün bilgisi |
+| `PERSDATA` | 9.437.184 B (9 MiB) | kalıcı veri |
+| `PARAM` | 2.097.152 B (2 MiB) | boot parametreleri |
 
 ### 6c. Bilgisayara çek
 
 ```bash
 mkdir -p ~/j106f-yedek
 adb pull /external_sd/TWRP/BACKUPS/ ~/j106f-yedek/TWRP/ 2>/dev/null
-adb pull /external_sd/l_modem.img   ~/j106f-yedek/
-adb pull /external_sd/l_fixnv2.img  ~/j106f-yedek/
-adb pull /external_sd/prodnv.img    ~/j106f-yedek/
-adb pull /external_sd/efs.img       ~/j106f-yedek/
+for B in l_modem l_fixnv2 prodnv efs PERSDATA PARAM; do
+  adb pull /external_sd/$B.img ~/j106f-yedek/ 2>/dev/null
+done
 ls -la ~/j106f-yedek/
 ```
 
 ## 7. Yedeği doğrula
 
-Boyutlar sıfırdan büyük olmalı. `dd` çıktısındaki `blockdev --getsize64` değeriyle
-karşılaştır — birebir eşit olmalı:
+Boyutlar **PIT'teki gerçek boyutla birebir** eşit olmalı. Yedek bölümün tamamı
+okunduğu için dosya boyutu = bölüm boyutu:
 
 ```bash
-sha256sum ~/j106f-yedek/*
-for f in l_modem l_fixnv2 prodnv efs; do
-  echo "$f: $(stat -c %s ~/j106f-yedek/$f.img 2>/dev/null || echo YOK) bayt"
+sha256sum ~/j106f-yedek/*.img
+declare -A PIT=( [efs]=20971520 [l_modem]=16777216 [l_fixnv2]=1048576 \
+                 [prodnv]=5242880 [PERSDATA]=9437184 [PARAM]=2097152 )
+for f in "${!PIT[@]}"; do
+  b=$(stat -c %s ~/j106f-yedek/$f.img 2>/dev/null || echo YOK)
+  if [ "$b" = "${PIT[$f]}" ]; then
+    echo "  ✔ $f: $b bayt"
+  else
+    echo "  ✘ $f: $b bayt, beklenen ${PIT[$f]} — ROM'a GEÇME"
+  fi
 done
 ```
 
-`l_modem` yedeği birkaç yüz KB, `l_fixnv2` birkaç yüz KB, `prodnv` birkaç MB
-civarındadır. Sıfır baytlık veya eksik dosya varsa **ROM'a geçme**.
+Sıfır baytlık, eksik veya yanlış boyutlu dosya varsa **ROM'a geçme**. Boyutlar
+sabit değil: `docs/PIT-GERCEK.md`'de ölçülmüş, `scripts/pit-dogrula.sh` ile
+doğrulanabilir.
 
 ## 8. ROM'u yazma (yalnızca yedek doğrulandıktan sonra)
 
