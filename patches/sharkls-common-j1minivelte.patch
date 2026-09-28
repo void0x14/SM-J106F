@@ -11,7 +11,7 @@ index cd4c750..1c578f4 100644
  include $(call all-makefiles-under,$(LOCAL_PATH))
  endif
 diff --git a/BoardConfigCommon.mk b/BoardConfigCommon.mk
-index 7bfcf69..5bea392 100644
+index 7bfcf69..a58cffd 100644
 --- a/BoardConfigCommon.mk
 +++ b/BoardConfigCommon.mk
 @@ -1,5 +1,5 @@
@@ -21,6 +21,19 @@ index 7bfcf69..5bea392 100644
  
  PLATFORM_PATH := device/samsung/sharkls-common
  
+@@ -13,7 +13,11 @@ TARGET_ARCH_VARIANT := armv7-a-neon
+ TARGET_CPU_VARIANT := cortex-a7
+ TARGET_CPU_SMP := true
+ ARCH_ARM_HAVE_TLS_REGISTER := true
+-WITH_SU := true
++# WITH_SU BURADA CALISMAZ. BoardConfig.mk, product_config.mk'DAN SONRA okunur
++# (build/make/core/envsetup.mk:208 vs :234); common.mk'in `ifeq ($(WITH_SU),true)`
++# testi BoardConfig yuklenmeden once kosar ve su paketlenmez.
++# Dogru yer: cihazin product makefile'i, ilk inherit'ten once.
++# j1minivelte icin: device/samsung/j1minivelte/lineage.mk
+ 
+ BOARD_NEEDS_MEMORYHEAPION_SPRD := true
+ BOARD_USE_EMMC := true
 diff --git a/rootdir/Android.mk b/rootdir/Android.mk
 index fa546fd..5a561d1 100644
 --- a/rootdir/Android.mk

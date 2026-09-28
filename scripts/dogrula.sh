@@ -38,6 +38,19 @@ chk "recovery.tar (Odin) var"        "[ -f '$P/recovery.tar' ]"
 echo "== zip =="
 Z=$(ls "$P"/lineage-15.1-*-UNOFFICIAL-j1minivelte.zip 2>/dev/null | head -1)
 chk "zip var"                        "[ -n '$Z' ]"
+
+echo "== ekran =="
+# sharkls-common J3 2016'dan miras 320 dpi yazar; cihaza ozel system.prop onu
+# ezmeli. Init'te ro.* write-once oldugu icin build.prop'ta ILK satir kazanir.
+chk "lcd_density 240 yazilmis"       "unzip -p '$Z' system/build.prop | head -70 | grep -c 'ro.sf.lcd_density=240'"
+chk "lcd_density 240 once geliyor"   "[ \$(unzip -p '$Z' system/build.prop | grep -n 'ro.sf.lcd_density=240' | head -1 | cut -d: -f1) -lt \$(unzip -p '$Z' system/build.prop | grep -n 'ro.sf.lcd_density=320' | head -1 | cut -d: -f1) ]"
+chk "lcd_width/height 56/94"         "unzip -p '$Z' system/build.prop | head -70 | grep -c 'ro.sf.lcd_height=94'"
+
+echo "== root =="
+# WITH_SU, product makefile'inda ilk inherit'ten ONCE verilmeli; BoardConfig'te
+# verilirse common.mk testi sirasinda deger bos olur ve su paketlenmez.
+chk "su derlendi (intermediates)"    "[ -d '$P/obj/EXECUTABLES/su_intermediates' ]"
+
 if [ -n "$Z" ]; then
   chk "zip icinde boot.img"          "unzip -l '$Z' | grep -c 'boot.img'"
   # Android 8.1 blok-OTA kullanir: system.img yerine system.new.dat.br +

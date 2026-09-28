@@ -13,6 +13,18 @@
 # limitations under the License.
 
 # Inherit from those products. Most specific first.
+#
+# WITH_SU burada, ilk inherit'ten ONCE verilmeli.
+# vendor/lineage/config/common.mk:238 `ifeq ($(WITH_SU),true)` ile su paketini
+# PRODUCT_PACKAGES'e ekler. Ama inherit-product zinciri product_config.mk
+# icinden gec import edilir ve BoardConfig.mk ondan SONRA okunur
+# (build/make/core/envsetup.mk:208 product_config, :234 board config).
+# BoardConfig'te verilirse common.mk testi calistiginda deger henuz bostur ve
+# su hic paketlenmez. Olculdu: get_build_var WITH_SU=true der ama
+# PRODUCT_PACKAGES'te su yoktur, ninja'da su hedefi yoktur.
+# NOT: bunu inherit'lerin altina tasima — sessizce bozulur.
+WITH_SU := true
+
 $(call inherit-product, $(SRC_TARGET_DIR)/product/full_base_telephony.mk)
 
 # Inherit some common CM stuff.
