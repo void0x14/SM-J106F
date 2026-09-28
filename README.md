@@ -259,6 +259,28 @@ SONUC: onyukleme zinciri saglam
 Negatif deneme: `dt.img` içindeki `linux,initrd-start/end` adları bozulunca
 betik `KOPUK HALKA VAR` verip exit 1 döner.
 
+### `ro.hardware` üç kaynaktan doğrulandı
+
+`androidboot.hardware=sc8830` şu üç yerde bağımsız olarak bulundu:
+
+1. **Derlenmiş `vmlinux`** — `CONFIG_CMDLINE` içinde (`strings vmlinux` birebir).
+2. **Cihazın bootloader'ı** — `sboot.bin`/`sboot2.bin` içinde.
+3. **Derlenmiş `dt.img`** — DT `/chosen bootargs` = `loglevel=1 init=/init
+   root=/dev/ram0 rw` (burada `androidboot.hardware` yok; gerekmiyor).
+
+Stok çekirdek (`stok/stokimg/boot.img`) açıldığında `androidboot.hardware`
+**yoktur**; değer yalnızca bootloader'dan gelir ve `CONFIG_CMDLINE_FROM_BOOTLOADER`
+seçilidir. Bizimki `CONFIG_CMDLINE_EXTEND` + cmdline'a ekleme → bootloader'a
+bağımlılık azaldı. Stok `mem=128M` bizde yok: DT `/memory reg = 80000000
+40000000` (1 GB) belleği zaten bildirir.
+
+`init.rc` ayrıca `/vendor/etc/init/hw/init.${ro.hardware}.rc` import eder; bu
+dosya yoktur ama **ölümcül değil**: `ImportParser::EndFile()`
+(`import_parser.cpp:46-53`) başarısız import için `PLOG(ERROR)` yazıp devam eder.
+`init.sc8830.rc` ramdisk kökünde olduğu için donanım servisleri tanımlı kalır.
+
+Ayrıntı: `docs/BOOT-ZINCIRI.md`.
+
 ### QEMU ile önyükleme neden denenemez
 
 Derlenen çekirdek yalnızca `CONFIG_ARCH_SCX35L=y` içerir;
@@ -677,4 +699,6 @@ fstab yollarıyla aynı. Ayrı TWRP indirmeye gerek yok. Ayrıntı ve ölçüm:
   ölçülmüş; "bozuk mu" sorusunun cevabı ve kalan sınırın dürüst kaydı
 - `docs/RECOVERY-TWRP.md` — üretilen `recovery.img` = TWRP 3.2.3-0; ROM zip'ini
   kuracak kadar (assert, brotli, PIT yolları ölçüldü)
+- `docs/BOOT-ZINCIRI.md` — `ro.hardware` üç kaynaktan doğrulandı; stok ile fark,
+  ölümcül olmayan rc importu
 - `docs/arastirma-raporu.md`, `docs/arastirma-raporu-2.md` — ROM araştırması
