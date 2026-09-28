@@ -290,6 +290,17 @@ async function flash(imaj, bolum, gercek) {
   if (policy.yasak_bolumler.includes(bolum)) dur(`Bölüm yasak: ${bolum}`)
   if (!policy.hedef_bolumler.includes(bolum)) dur(`Bölüm izinli değil: ${bolum}`)
 
+  // heimdall bir bolume HAM BAYT yazar. OTA zip'i ham imaj degildir: icinde
+  // blok haritasi (system.transfer.list) ve brotli yuku vardir; ayrica
+  // updater-script'i calistiran sey TWRP'dir. Zip'i heimdall'a vermek bolume
+  // zip dosyasini yazar. ROM zip'i TWRP'den kurulur (bkz. docs/FLASH.md).
+  if (yol.toLowerCase().endsWith(".zip")) {
+    dur(`Bu bir OTA zip'i, ham imaj değil: ${path.basename(yol)}\n` +
+        `     heimdall bölüme ham bayt yazar; zip'in içindeki blok haritasını\n` +
+        `     çalıştıracak olan TWRP'dir. ROM'u TWRP'den kur:\n` +
+        `     Install → ${path.basename(yol)} → Swipe to confirm`)
+  }
+
   if (!process.stdin.isTTY) {
     dur("Bu adım gerçek bir terminal gerektirir.\n" +
         "     Bu komutu KENDİ terminalinde çalıştır — ajan bu kapıyı açamaz.")

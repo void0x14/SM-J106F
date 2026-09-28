@@ -19,6 +19,9 @@ cd "$T"
 cp "$P" dogru.tar
 cp "$P" twrp-j3xlte-recovery.tar
 cp "$P" imza.tar.bak
+# OTA zip'i: ham imaj degil, TWRP'den kurulur. Reddedilmeli.
+Z=$(ls /home/void0x14/j106f/build/android/out/target/product/j1minivelte/lineage-15.1-*-UNOFFICIAL-j1minivelte.zip 2>/dev/null | head -1)
+[ -n "$Z" ] && cp "$Z" rom.zip
 
 say=0; ok=0
 # red <aciklama> <beklenen parca> <argv...>
@@ -41,6 +44,7 @@ red "yasak bolum (efs)"                "Bölüm yasak"          incele dogru.tar
 red "izinli olmayan uzanti"            "Uzantı izinli değil"  incele imza.tar.bak --bolum recovery
 red "bolum belirtilmedi"               "--bolum belirtilmedi" incele dogru.tar
 red "TTY kapisi"                       "gerçek bir terminal"  flash dogru.tar --bolum recovery
+[ -f rom.zip ] && red "OTA zip ham imaj degil" "OTA zip"      flash rom.zip --bolum system
 
 echo
 echo "== PIT ayristirici =="
