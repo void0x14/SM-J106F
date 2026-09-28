@@ -1,0 +1,45 @@
+{
+  "_aciklama": "Gövde koruması politikası. Çalışma anında okunur; eklenti bu dosyayı değiştirmez.",
+
+  "cihaz": {
+    "pazarlama_adi": "Samsung Galaxy J1 Mini Prime",
+    "model": "SM-J106F",
+    "soc": "Spreadtrum SC9830A (SCX35L)",
+    "flash_yolu": "Odin / Heimdall (download mode)"
+  },
+
+  "izinli_cihaz_kodlari": [
+    "j1minivelte",
+    "j1minivelteub",
+    "j1miniveltexx",
+    "j1minive3g",
+    "j1minive3gxtc",
+    "j1mini3g",
+    "SM-J106F",
+    "SM-J106M",
+    "SM-J106B",
+    "SM-J106H"
+  ],
+
+  "reddedilecek_cihaz_kodlari": [
+    "j3xlte", "j3xnlte", "j3lte", "j3poplte",
+    "kanas", "grandneove3g", "grandprimeve3g",
+    "j1mini", "j1nxt", "j1acevelte", "j1minilte"
+  ],
+
+  "izinli_uzantilar": [".tar", ".tar.md5", ".img", ".zip"],
+
+  "hedef_bolumler": ["recovery", "boot", "system", "modem"],
+
+  "yasak_bolumler": ["bootloader", "uboot", "sbl1", "spl", "efs", "modemst1", "modemst2", "prodnv", "nvdata", "persist"],
+
+  "bolum_boyut_ust_siniri_mb": {
+    "recovery": 32,
+    "boot": 32,
+    "system": 2048,
+    "modem": 64
+  },
+
+  "onay_gecerlilik_saniye": 1800,
+  "icerik_tarama_limiti_bayt": 67108864
+}
