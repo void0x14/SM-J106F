@@ -824,7 +824,7 @@ index e07af20..4eab2de 100644
 +# GPS NVRAM (grandneove3g Oreo portundan)
 +type gps_data_file, file_type, data_file_type;
 diff --git a/sepolicy/file_contexts b/sepolicy/file_contexts
-index 0069d12..806e41e 100644
+index 0069d12..4bfd3b9 100644
 --- a/sepolicy/file_contexts
 +++ b/sepolicy/file_contexts
 @@ -76,46 +76,46 @@
@@ -921,7 +921,7 @@ index 0069d12..806e41e 100644
  /data/sprdinfo(/.*)? u:object_r:apr_data_file:s0
  /data/apr.conf u:object_r:apr_data_file:s0
  
-@@ -154,8 +152,27 @@
+@@ -154,8 +152,26 @@
  /data/.battery_nv		u:object_r:self_system_data_file:s0
  
  #for ylog
@@ -933,23 +933,41 @@ index 0069d12..806e41e 100644
 +
 +# --- rc dosyalarindaki servis yollari icin eksik girisler ---
 +/(vendor|system/vendor)/bin/ext_chown.sh u:object_r:ext_data_exec:s0
-+/(vendor|system/vendor)/bin/cmd_services u:object_r:cmd_services_exec:s0
 +/(vendor|system/vendor)/bin/prepare_param.sh u:object_r:prepare_param_exec:s0
 +/(vendor|system/vendor)/bin/charon u:object_r:charon_exec:s0
 +/(vendor|system/vendor)/bin/gpsd u:object_r:gpsd_exec:s0
 +/(vendor|system/vendor)/bin/mfgloader u:object_r:mfgloader_exec:s0
 +/(vendor|system/vendor)/bin/wlandutservice u:object_r:wlandutservice_exec:s0
 +/(vendor|system/vendor)/bin/slog u:object_r:slogd_exec:s0
-+/(vendor|system/vendor)/bin/slogmodem u:object_r:slogmodem_exec:s0
 +/(vendor|system/vendor)/bin/slogctl u:object_r:slogmodem_exec:s0
 +/(vendor|system/vendor)/bin/flush_slog_modem u:object_r:slogmodem_exec:s0
 +/(vendor|system/vendor)/bin/cplogctl u:object_r:slogd_exec:s0
-+/(vendor|system/vendor)/bin/hostapd u:object_r:hostapd_exec:s0
-+/(vendor|system/vendor)/bin/hw/wpa_supplicant u:object_r:hal_wifi_supplicant_default_exec:s0
 +/(vendor|system/vendor)/bin/ext_data.sh u:object_r:ext_data_exec:s0
 +/dev/ttyS3 u:object_r:gps_serial_device:s0
 +/data/system/gps(/.*)? u:object_r:gps_data_file:s0
 +/dev/block/platform/sdio_emmc/by-name/PARAM u:object_r:param_block_device:s0
++/(vendor|system/vendor)/bin/ext_kill.sh u:object_r:rild_exec:s0
++/(vendor|system/vendor)/bin/inputfreq.sh u:object_r:freqctl_exec:s0
++/(vendor|system/vendor)/bin/recoveryfreq.sh u:object_r:freqctl_exec:s0
+diff --git a/sepolicy/freqctl.te b/sepolicy/freqctl.te
+new file mode 100644
+index 0000000..a8d37bf
+--- /dev/null
++++ b/sepolicy/freqctl.te
+@@ -0,0 +1,13 @@
++# inputfreq.sh / recoveryfreq.sh - termal bolge modu ve cooling device
++# durumunu ayarlayan kucuk kabuk betikleri. Ikisi de /system/bin/sh ile
++# kosar, sysfs'e yazar, /system/build.prop okur.
++type freqctl, domain;
++type freqctl_exec, exec_type, file_type;
++
++init_daemon_domain(freqctl)
++
++allow freqctl shell_exec:file { read open getattr execute execute_no_trans };
++allow freqctl system_file:file { read open getattr };
++allow freqctl sysfs:file { read open write getattr };
++allow freqctl system_data_file:dir search;
++allow freqctl proc:file { read open };
 diff --git a/sepolicy/gpsd.te b/sepolicy/gpsd.te
 new file mode 100644
 index 0000000..369c8b0
@@ -999,6 +1017,25 @@ index 0000000..f1267cb
 +allow prepare_param device:dir { read write add_name remove_name };
 +allow prepare_param device:lnk_file { create unlink };
 +allow prepare_param system_data_file:dir search;
+diff --git a/sepolicy/rild.te b/sepolicy/rild.te
+index 946db68..54bc10b 100644
+--- a/sepolicy/rild.te
++++ b/sepolicy/rild.te
+@@ -104,3 +104,14 @@ allow rild slogd:dir search;
+ allow rild ylog:dir search;
+ allow rild slogd:file {read open};
+ allow rild ylog:file {read open};
++
++# ext_kill.sh / ext_data.sh / ext_symlink.sh ayni sekilde rild ile etiketlenir
++allow rild shell_exec:file { read open getattr execute execute_no_trans };
++allow rild toolbox_exec:file { read open getattr execute execute_no_trans map };
++allow rild self:capability { net_admin net_raw };
++allow rild self:rawip_socket { create read write ioctl setopt };
++allow rild self:netlink_route_socket { create bind read write getattr nlmsg_read nlmsg_write };
++allow rild self:udp_socket { create read write ioctl };
++allow rild proc:file { read open write };
++allow rild proc_net:file { read open getattr };
++allow rild sysfs:file { read open write };
 diff --git a/sepolicy/wlandutservice.te b/sepolicy/wlandutservice.te
 new file mode 100644
 index 0000000..6a4ca4f
