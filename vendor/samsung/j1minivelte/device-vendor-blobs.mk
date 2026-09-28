@@ -21,6 +21,18 @@ PRODUCT_COPY_FILES += \
     vendor/samsung/j1minivelte/proprietary/bin/ext_kill.sh:$(TARGET_COPY_OUT_VENDOR)/bin/ext_kill.sh \
     vendor/samsung/j1minivelte/proprietary/bin/inputfreq.sh:$(TARGET_COPY_OUT_VENDOR)/bin/inputfreq.sh \
     vendor/samsung/j1minivelte/proprietary/bin/recoveryfreq.sh:$(TARGET_COPY_OUT_VENDOR)/bin/recoveryfreq.sh \
+    vendor/samsung/j1minivelte/proprietary/bin/IPSecService:$(TARGET_COPY_OUT_VENDOR)/bin/IPSecService \
+    vendor/samsung/j1minivelte/proprietary/bin/at_distributor:$(TARGET_COPY_OUT_VENDOR)/bin/at_distributor \
+    vendor/samsung/j1minivelte/proprietary/bin/connfwexe:$(TARGET_COPY_OUT_VENDOR)/bin/connfwexe \
+    vendor/samsung/j1minivelte/proprietary/bin/ddexe:$(TARGET_COPY_OUT_VENDOR)/bin/ddexe \
+    vendor/samsung/j1minivelte/proprietary/bin/ext_symlink.sh:$(TARGET_COPY_OUT_VENDOR)/bin/ext_symlink.sh \
+    vendor/samsung/j1minivelte/proprietary/bin/macloader:$(TARGET_COPY_OUT_VENDOR)/bin/macloader \
+    vendor/samsung/j1minivelte/proprietary/bin/mfgloader:$(TARGET_COPY_OUT_VENDOR)/bin/mfgloader \
+    vendor/samsung/j1minivelte/proprietary/bin/modemd:$(TARGET_COPY_OUT_VENDOR)/bin/modemd \
+    vendor/samsung/j1minivelte/proprietary/bin/phoneserver:$(TARGET_COPY_OUT_VENDOR)/bin/phoneserver \
+    vendor/samsung/j1minivelte/proprietary/bin/prepare_param.sh:$(TARGET_COPY_OUT_VENDOR)/bin/prepare_param.sh \
+    vendor/samsung/j1minivelte/proprietary/bin/smdexe:$(TARGET_COPY_OUT_VENDOR)/bin/smdexe \
+    vendor/samsung/j1minivelte/proprietary/bin/wlandutservice:$(TARGET_COPY_OUT_VENDOR)/bin/wlandutservice \
     vendor/samsung/j1minivelte/proprietary/etc/apns-conf.xml:$(TARGET_COPY_OUT_VENDOR)/etc/apns-conf.xml \
     vendor/samsung/j1minivelte/proprietary/etc/audio_effects.conf:$(TARGET_COPY_OUT_VENDOR)/etc/audio_effects.conf \
     vendor/samsung/j1minivelte/proprietary/etc/clatd.conf:$(TARGET_COPY_OUT_VENDOR)/etc/clatd.conf \
@@ -56,6 +68,7 @@ PRODUCT_COPY_FILES += \
     vendor/samsung/j1minivelte/proprietary/lib/hw/vibrator.default.so:$(TARGET_COPY_OUT_VENDOR)/lib/hw/vibrator.default.so \
     vendor/samsung/j1minivelte/proprietary/lib/libae.so:$(TARGET_COPY_OUT_VENDOR)/lib/libae.so \
     vendor/samsung/j1minivelte/proprietary/lib/libarac.so:$(TARGET_COPY_OUT_VENDOR)/lib/libarac.so \
+    vendor/samsung/j1minivelte/proprietary/lib/libatparser.so:$(TARGET_COPY_OUT_VENDOR)/lib/libatparser.so \
     vendor/samsung/j1minivelte/proprietary/lib/libaudioutils.so:$(TARGET_COPY_OUT_VENDOR)/lib/libaudioutils.so \
     vendor/samsung/j1minivelte/proprietary/lib/libawb.so:$(TARGET_COPY_OUT_VENDOR)/lib/libawb.so \
     vendor/samsung/j1minivelte/proprietary/lib/libboost.so:$(TARGET_COPY_OUT_VENDOR)/lib/libboost.so \
@@ -65,10 +78,12 @@ PRODUCT_COPY_FILES += \
     vendor/samsung/j1minivelte/proprietary/lib/libbt-iopdb.so:$(TARGET_COPY_OUT_VENDOR)/lib/libbt-iopdb.so \
     vendor/samsung/j1minivelte/proprietary/lib/libcameraservice_cameramodule.so:$(TARGET_COPY_OUT_VENDOR)/lib/libcameraservice_cameramodule.so \
     vendor/samsung/j1minivelte/proprietary/lib/libdrmdecrypt.so:$(TARGET_COPY_OUT_VENDOR)/lib/libdrmdecrypt.so \
+    vendor/samsung/j1minivelte/proprietary/lib/libfactoryutil.so:$(TARGET_COPY_OUT_VENDOR)/lib/libfactoryutil.so \
     vendor/samsung/j1minivelte/proprietary/lib/libfloatingfeature.so:$(TARGET_COPY_OUT_VENDOR)/lib/libfloatingfeature.so \
     vendor/samsung/j1minivelte/proprietary/lib/liblsc.so:$(TARGET_COPY_OUT_VENDOR)/lib/liblsc.so \
     vendor/samsung/j1minivelte/proprietary/lib/libmaet.so:$(TARGET_COPY_OUT_VENDOR)/lib/libmaet.so \
     vendor/samsung/j1minivelte/proprietary/lib/libomafldrm.so:$(TARGET_COPY_OUT_VENDOR)/lib/libomafldrm.so \
+    vendor/samsung/j1minivelte/proprietary/lib/libomission_avoidance.so:$(TARGET_COPY_OUT_VENDOR)/lib/libomission_avoidance.so \
     vendor/samsung/j1minivelte/proprietary/lib/libsamsungearcare.so:$(TARGET_COPY_OUT_VENDOR)/lib/libsamsungearcare.so \
     vendor/samsung/j1minivelte/proprietary/lib/libsamsungeffect.so:$(TARGET_COPY_OUT_VENDOR)/lib/libsamsungeffect.so \
     vendor/samsung/j1minivelte/proprietary/lib/libsamsungpowersound.so:$(TARGET_COPY_OUT_VENDOR)/lib/libsamsungpowersound.so \
@@ -123,6 +138,7 @@ PRODUCT_COPY_FILES += \
     vendor/samsung/j1minivelte/proprietary/lib/libsomxwmad.so:$(TARGET_COPY_OUT_VENDOR)/lib/libsomxwmad.so \
     vendor/samsung/j1minivelte/proprietary/lib/libsomxwmv7d.so:$(TARGET_COPY_OUT_VENDOR)/lib/libsomxwmv7d.so \
     vendor/samsung/j1minivelte/proprietary/lib/libsomxwmv8d.so:$(TARGET_COPY_OUT_VENDOR)/lib/libsomxwmv8d.so \
+    vendor/samsung/j1minivelte/proprietary/lib/libsprdftms.so:$(TARGET_COPY_OUT_VENDOR)/lib/libsprdftms.so \
     vendor/samsung/j1minivelte/proprietary/lib/lib_soundaliveresampler.so:$(TARGET_COPY_OUT_VENDOR)/lib/lib_soundaliveresampler.so \
     vendor/samsung/j1minivelte/proprietary/lib/lib_SoundAlive_SRC192_ver205.so:$(TARGET_COPY_OUT_VENDOR)/lib/lib_SoundAlive_SRC192_ver205.so \
     vendor/samsung/j1minivelte/proprietary/lib/libsthmb.so:$(TARGET_COPY_OUT_VENDOR)/lib/libsthmb.so \
