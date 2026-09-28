@@ -78,8 +78,15 @@ if ramdisk:
         politika = f.read()
 
 domainler = set()
-for d in re.findall(rb'\x00([A-Za-z_][A-Za-z_0-9]{2,})\x00', politika):
-    domainler.add(d.decode())
+# Derlenmis sepolicy ikilisindeki tip adlari NUL ile cevrili DEGILDIR;
+# tip tablosu siradan string olarak durur. NUL-tabanli regex (eski surum)
+# yalnizca 27 tip bulup prepare_param/rild gibi gercek domainleri kaciriyordu.
+# Bu yuzden ham ikili icinde tip adi gibi gorunen butun sozcukler toplanir;
+# yanlis pozitif zararsizdir (yalnizca "domain tanimli mi" sorusuna evet der).
+with open(os.path.join(ramdisk, "sepolicy"), "rb") as f:
+    politika = f.read()
+for m in re.finditer(rb'[A-Za-z_][A-Za-z_0-9]{2,}', politika):
+    domainler.add(m.group(0).decode())
 
 
 def onek_uzunlugu(rx):
@@ -128,17 +135,26 @@ def gercek_yol(yol):
     """init `getfilecon()` kullanir; libselinux getfilecon.c:22
     `getxattr(path,...)` cagirir ve bu SYMLINK'LERI TAKIP EDER. Yani
     /system/bin/umount -> toybox ise etiket toybox'inki olur. Etiket
-    denetimi bu yuzden cozulmus yol uzerinde yapilmali."""
+    denetimi bu yuzden cozulmus yol uzerinde yapilmali.
+
+    ONEMLI: geri esleme EN UZUN onekle yapilir. kokler'de "/system" ve
+    "/vendor" ayni gercek dizine isaret edebilir; kisa onek once denenirse
+    /vendor/bin/x yanlislikla /system/vendor/bin/x diye raporlanir."""
     g = coz(yol)
     if g is None or not os.path.exists(g):
         return yol
     r = os.path.realpath(g)
+    en_iyi, en_uzun = yol, -1
     for onek, gercek in kokler:
         if r == gercek:
-            return onek
-        if r.startswith(gercek + os.sep):
-            return onek + "/" + os.path.relpath(r, gercek)
-    return yol
+            aday = onek
+        elif r.startswith(gercek + os.sep):
+            aday = onek + "/" + os.path.relpath(r, gercek)
+        else:
+            continue
+        if len(gercek) > en_uzun:
+            en_uzun, en_iyi = len(gercek), aday
+    return en_iyi
 
 
 def baska_bolumde_ara(yol):

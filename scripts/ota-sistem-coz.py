@@ -50,7 +50,13 @@ if yeni_blok != len(veri) // BLK:
     raise SystemExit("UYUSMAZLIK: new blok %d != veri blok %d" % (yeni_blok, len(veri) // BLK))
 
 with open(cikti, "wb") as o:
-    o.truncate(toplam_blok * BLK)
+    # DIKKAT: toplam_blok = transfer AKISININ toplam blogu (new + zero), imaj
+    # boyutu DEGIL. Gercek imaj uzantisi = butun komutlarin en buyuk bitis
+    # blogu (erase dahil; erase araliklari imajin sonuna kadar uzanir).
+    # Yanlis olan `truncate(toplam_blok*BLK)` imaji ortadan kesiyor ve
+    # "bad geometry: block count 524288 exceeds size of device" veriyor.
+    imaj_blok = max(e for _, ar in komutlar for _, e in ar)
+    o.truncate(imaj_blok * BLK)
     konum = 0
     for k, ar in komutlar:
         for s, e in ar:
@@ -62,4 +68,7 @@ with open(cikti, "wb") as o:
             elif k == "zero":
                 o.seek(s * BLK)
                 o.write(b"\x00" * ((e - s) * BLK))
+    # yazma islemleri dosyayi uzatmis olabilir; imaj uzantisina geri kirp
+    o.truncate(imaj_blok * BLK)
+print("imaj blok", imaj_blok, "=", imaj_blok * BLK, "bayt")
 print("yazilan ham imaj", os.path.getsize(cikti), "bayt")
