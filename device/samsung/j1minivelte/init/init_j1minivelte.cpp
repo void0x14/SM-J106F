@@ -1,0 +1,126 @@
+/*
+   Copyright (c) 2013, The Linux Foundation. All rights reserved.
+   Redistribution and use in source and binary forms, with or without
+   modification, are permitted provided that the following conditions are
+   met:
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above
+      copyright notice, this list of conditions and the following
+      disclaimer in the documentation and/or other materials provided
+      with the distribution.
+    * Neither the name of The Linux Foundation nor the names of its
+      contributors may be used to endorse or promote products derived
+      from this software without specific prior written permission.
+   THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
+   WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
+   ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
+   BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+   CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+   SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
+   BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+   WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+   OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+   IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#include <stdlib.h>
+#include <string.h>
+
+#include "vendor_init.h"
+#include "property_service.h"
+#include "log.h"
+#include "util.h"
+
+#include <android-base/logging.h>
+
+#define _REALLY_INCLUDE_SYS__SYSTEM_PROPERTIES_H_
+#include <sys/_system_properties.h>
+
+std::string property_get(const char* name) {
+    char value[PROP_VALUE_MAX] = {0};
+    __system_property_get(name, value);
+    return value;
+}
+
+void property_override(char const prop[], char const value[])
+{
+    prop_info *pi;
+
+    pi = (prop_info*) __system_property_find(prop);
+    if (pi)
+        __system_property_update(pi, value, strlen(value));
+    else
+        __system_property_add(prop, strlen(prop), value, strlen(value));
+}
+
+static void import_kernel_hwrev(const std::string& key, const std::string& value, bool for_emulator)
+{
+    if (key.empty()) return;
+
+    if (key == "hw_revision") {
+        property_override("ro.revision", value.c_str());
+    }
+}
+
+void vendor_load_properties()
+{
+    std::string platform = property_get("ro.board.platform");
+    if (platform.empty() || platform != ANDROID_TARGET)
+        return;
+
+    android::init::import_kernel_cmdline(false, import_kernel_hwrev);
+    std::string revision = property_get("ro.revision");
+    if (revision.empty())
+        android::init::property_set("ro.revision", "0");
+
+    /* SIM slot count — J106F is single-SIM, J106F/DS is dual-SIM.
+       /proc/simslot_count is provided by the SPRD kernel. */
+    char* simslot_count_path = (char *)"/proc/simslot_count";
+    char simslot_count[2] = "\0";
+
+    FILE* file = fopen(simslot_count_path, "r");
+    if (file != NULL) {
+        simslot_count[0] = fgetc(file);
+        android::init::property_set("ro.multisim.simslotcount", simslot_count);
+        android::init::property_set("ro.msms.phone_count", simslot_count);
+        android::init::property_set("ro.modem.w.count", simslot_count);
+        android::init::property_set("persist.msms.phone_count", simslot_count);
+        if (simslot_count[0] == '2')
+            android::init::property_set("persist.radio.multisim.config", "dsds");
+
+        fclose(file);
+    }
+
+    /* Region-specific variants.  The bootloader id carries the model. */
+    std::string bootloader = property_get("ro.bootloader");
+
+    if (strstr(bootloader.c_str(), "J106F") == NULL) {
+        if (strstr(bootloader.c_str(), "J106B") || strstr(bootloader.c_str(), "J106H")) {
+            /* SM-J106B / SM-J106H — 3G variant */
+            property_override("ro.product.model", "SM-J106B");
+            property_override("ro.product.name", "j1minive3g");
+            property_override("ro.build.description",
+                "j1minive3gxx-user 6.0.1 MMB29Q J106BXXU0AQK1 release-keys");
+            property_override("ro.build.fingerprint",
+                "samsung/j1minive3gxx/j1minive3g:6.0.1/MMB29Q/J106BXXU0AQK1:user/release-keys");
+            property_override("ro.bootimage.build.fingerprint",
+                "samsung/j1minive3gxx/j1minive3g:6.0.1/MMB29Q/J106BXXU0AQK1:user/release-keys");
+        } else {
+            /* SM-J106M / SM-J106F — Latin America LTE variant */
+            property_override("ro.product.model", "SM-J106M");
+            property_override("ro.product.name", "j1minivelteub");
+            property_override("ro.build.description",
+                "j1minivelteub-user 6.0.1 MMB29Q J106MVJU0ARH1 release-keys");
+            property_override("ro.build.fingerprint",
+                "samsung/j1minivelteub/j1minivelte:6.0.1/MMB29Q/J106MVJU0ARH1:user/release-keys");
+            property_override("ro.bootimage.build.fingerprint",
+                "samsung/j1minivelteub/j1minivelte:6.0.1/MMB29Q/J106MVJU0ARH1:user/release-keys");
+        }
+    }
+
+    std::string device = property_get("ro.product.device");
+    LOG(INFO) << "Found bootloader id " << bootloader.c_str()
+              << " setting build properties for " << device.c_str() << "  device";
+}

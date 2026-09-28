@@ -1,0 +1,2308 @@
+diff --git a/Makefile b/Makefile
+index 1e1708c2..e907aba5 100755
+--- a/Makefile
++++ b/Makefile
+@@ -242,7 +242,7 @@ CONFIG_SHELL := $(shell if [ -x "$$BASH" ]; then echo $$BASH; \
+ 
+ HOSTCC       = gcc
+ HOSTCXX      = g++
+-HOSTCFLAGS   = -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 -fomit-frame-pointer
++HOSTCFLAGS   = -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 -fomit-frame-pointer -fcommon -std=gnu11
+ HOSTCXXFLAGS = -O2
+ 
+ # Decide whether to build built-in, modular, or both.
+diff --git a/drivers/media/sprd_isp/Makefile b/drivers/media/sprd_isp/Makefile
+index 728d78a9..c83bc00f 100755
+--- a/drivers/media/sprd_isp/Makefile
++++ b/drivers/media/sprd_isp/Makefile
+@@ -88,6 +88,7 @@ sprd_isp-objs := isp_drv.o \
+ 		isp2.0/tshark2/src/isp_k_2d_lsc.o \
+ 		isp2.0/tshark2/src/isp_k_1d_lsc.o \
+ 		isp2.0/tshark2/src/isp_k_binning4awb.o \
++		isp2.0/tshark2/src/isp_k_buf_queue.o \
+ 		isp2.0/tshark2/src/isp_k_awb.o \
+ 		isp2.0/tshark2/src/isp_k_raw_aem.o \
+ 		isp2.0/tshark2/src/isp_k_bpc.o \
+diff --git a/drivers/media/sprd_isp/isp2.0/tshark2/inc/isp_block.h b/drivers/media/sprd_isp/isp2.0/tshark2/inc/isp_block.h
+index cd82297d..e106ac97 100755
+--- a/drivers/media/sprd_isp/isp2.0/tshark2/inc/isp_block.h
++++ b/drivers/media/sprd_isp/isp2.0/tshark2/inc/isp_block.h
+@@ -63,5 +63,6 @@ int32_t isp_k_cfg_fetch(struct isp_io_param *param);
+ int32_t isp_k_cfg_store(struct isp_io_param *param);
+ int32_t isp_k_cfg_dispatch(struct isp_io_param *param);
+ int32_t isp_k_cfg_arbiter(struct isp_io_param *param);
++int32_t isp_k_cfg_buf_queue(struct isp_io_param *param, struct isp_k_private *isp_private);
+ int32_t isp_k_cfg_common(struct isp_io_param *param);
+-int32_t isp_k_cfg_raw_sizer(struct isp_io_param *param);
+\ No newline at end of file
++int32_t isp_k_cfg_raw_sizer(struct isp_io_param *param);
+diff --git a/drivers/media/sprd_isp/isp2.0/tshark2/inc/isp_drv.h b/drivers/media/sprd_isp/isp2.0/tshark2/inc/isp_drv.h
+index 9962e483..5fdf2146 100755
+--- a/drivers/media/sprd_isp/isp2.0/tshark2/inc/isp_drv.h
++++ b/drivers/media/sprd_isp/isp2.0/tshark2/inc/isp_drv.h
+@@ -16,9 +16,12 @@
+ 
+ #include <linux/semaphore.h>
+ #include <linux/spinlock_types.h>
++#include <video/sprd_isp.h>
++#include <linux/interrupt.h>
+ 
+ #define ISP_QUEUE_LENGTH 16
+ #define ISP_BING4AWB_NUM 2
++#define ISP_BUF_QUEUE_LENGTH 16
+ 
+ 
+ struct isp_node {
+@@ -42,6 +45,13 @@ struct isp_b4awb_buf {
+ 	unsigned long buf_phys_addr;
+ };
+ 
++struct isp_buf_queue {
++	struct isp_buf_node           node[ISP_BUF_QUEUE_LENGTH];
++	struct isp_buf_node           *write;
++	struct isp_buf_node           *read;
++	uint32_t                      cnt;
++};
++
+ struct isp_k_private {
+ 	atomic_t users;
+ 	struct device_node *dn;
+@@ -54,8 +64,6 @@ struct isp_k_private {
+ 	uint32_t reg_buf_len;
+ 	uint32_t lsc_load_buf_id;
+ 	uint32_t lsc_update_buf_id;
+-	unsigned long raw_aem_buf_addr;
+-	uint32_t raw_aem_buf_len;
+ 	uint32_t ct_load_buf_id;
+ 	unsigned long full_gamma_buf_addr;
+ 	uint32_t full_gamma_buf_len;
+@@ -67,11 +75,20 @@ struct isp_k_private {
+ 	uint32_t raw_awbm_buf_len;
+ 	struct isp_b4awb_buf b4awb_buf[ISP_BING4AWB_NUM];
+ 	uint32_t lsc_buf_phys_addr;
+-	unsigned long yiq_antiflicker_buf_addr;
+-	uint32_t yiq_antiflicker_len;
+-	uint32_t yiq_antiflicker_order;
++	uint32_t anti_flicker_buf_phys_addr;
+ 	unsigned long yiq_aem_buf_addr;
+ 	uint32_t yiq_aem_buf_len;
++	struct isp_buf_queue ae_irq_queue; /*for irq read*/
++	struct isp_buf_queue ae_user_queue; /*for user read*/
++	struct isp_buf_node    ae_reserved_node;
++	uint32_t is_ae_reserved_buf;
++	struct isp_buf_node    bin4_cur_node;
++	struct semaphore         rawae_thread_sem;
++	struct task_struct      *rawae_thread;
++	uint32_t                 is_rawae_thread_stop;
++	struct isp_buf_node    rawae_cur_node;
++	uint32_t is_rawae_schedule;
++	struct semaphore  rawae_schedule_sem;
+ 	uint32_t raw_nlm_buf_id;
+ 	uint32_t is_vst_ivst_update;
+ };
+@@ -93,5 +110,19 @@ void isp_en_irq(uint32_t irq_mode);
+ int32_t isp_axi_bus_waiting(void);
+ int32_t isp_capability(void *param);
+ int32_t isp_cfg_param(void  *param, struct isp_k_private *isp_private);
++int32_t isp_k_binging_switch_bq_buf(struct isp_k_private *isp_private);
++int32_t isp_k_rawaem_switch_bq_buf(struct isp_k_private *isp_private);
++int32_t isp_k_binning_enqueue_buf(struct isp_k_private *isp_private, struct isp_buf_node *node);
++int32_t isp_k_rawaem_enqueue_buf(struct isp_k_private *isp_private, struct isp_buf_node *node);
++int32_t isp_k_binning_dequeue_buf(struct isp_k_private *isp_private, struct isp_buf_node *node);
++int32_t isp_k_rawaem_dequeue_buf(struct isp_k_private *isp_private, struct isp_buf_node *node);
++int isp_k_rawaem_thread_loop(void *arg);
++
++int32_t isp_k_switch_bq_buf(struct isp_k_private *isp_private, struct isp_node *node);
++int isp_k_create_bq_thread(struct isp_k_private *isp_private);
++int isp_k_stop_bq_thread(struct isp_k_private *isp_private);
++void isp_buf_queue_init(struct isp_buf_queue *queue);
++int32_t isp_buf_queue_read(struct isp_buf_queue *queue, struct isp_buf_node *node);
++int32_t isp_buf_queue_write(struct isp_buf_queue *queue, struct isp_buf_node *node);
+ 
+ #endif
+diff --git a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_cfg_param.c b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_cfg_param.c
+index e720c5e0..69f9786b 100755
+--- a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_cfg_param.c
++++ b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_cfg_param.c
+@@ -112,9 +112,11 @@ int32_t isp_cfg_param(void  *param, struct isp_k_private *isp_private)
+ 		ret = isp_k_cfg_ygamma(&isp_param, isp_private);
+ 	} else if (ISP_BLOCK_AWB == isp_param.sub_block) {
+ 		ret = isp_k_cfg_awb(&isp_param, isp_private);
+-	} else if(ISP_BLOCK_BINNING4AWB == isp_param.sub_block){
++	} else if (ISP_BLOCK_BINNING4AWB == isp_param.sub_block) {
+ 		ret = isp_k_cfg_binning(&isp_param, isp_private);
+-	} else if(ISP_BLOCK_NLM == isp_param.sub_block){
++	} else if (ISP_BLOCK_BUFQUEUE == isp_param.sub_block) {
++		ret = isp_k_cfg_buf_queue(&isp_param, isp_private);
++	} else if (ISP_BLOCK_NLM == isp_param.sub_block) {
+ 		ret = isp_k_cfg_nlm(&isp_param, isp_private);
+ 	} else {
+ 		cnt = sizeof(isp_cfg_fun_tab) / sizeof(isp_cfg_fun_tab[0]);
+diff --git a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_anti_flicker.c b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_anti_flicker.c
+index d174b422..26c9c8c9 100755
+--- a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_anti_flicker.c
++++ b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_anti_flicker.c
+@@ -15,48 +15,17 @@
+ #include <linux/sprd_mm.h>
+ #include <video/sprd_isp.h>
+ #include <asm/cacheflush.h>
++#include <soc/sprd/arch_misc.h>
+ #include "isp_reg.h"
+ #include "isp_drv.h"
+ 
+-static int32_t isp_k_afl_param_update(struct isp_k_private *isp_private)
+-{
+-	int32_t ret = 0;
+-	uint32_t addr = 0;
+-#ifndef CONFIG_64BIT
+-	void *buf_ptr = (void *)isp_private->yiq_antiflicker_buf_addr;
+-#endif
+-	uint32_t buf_len = isp_private->yiq_antiflicker_len;
+-
+-	if((0x00 != isp_private->yiq_antiflicker_buf_addr) && (0x00 != isp_private->yiq_antiflicker_len)) {
+-
+-#ifndef CONFIG_64BIT
+-		dmac_flush_range(buf_ptr, buf_ptr + buf_len);
+-		outer_flush_range(__pa(buf_ptr), __pa(buf_ptr) + buf_len);
+-#endif
+-		addr = (uint32_t)__pa(isp_private->yiq_antiflicker_buf_addr);
+-
+-#if defined(CONFIG_ARCH_SCX30G3)
+-		REG_WR(ISP_ANTI_FLICKER_NEW_DDR_INIT_ADDR, addr);
+-#else
+-		REG_WR(ISP_ANTI_FLICKER_DDR_INIT_ADDR, addr);
+-#endif
+-	}
+-
+-	return ret;
+-}
+-
+ static int32_t isp_k_afl_statistic(struct isp_io_param *param, struct isp_k_private *isp_private)
+ {
+ 	int32_t ret = 0;
+ 
+-	if((0x00 != isp_private->yiq_antiflicker_buf_addr) && (0x00 != param->property_param) \
+-		&& (0x00 != isp_private->yiq_antiflicker_len) ) {
+-
+-		ret = copy_to_user(param->property_param, (void *)isp_private->yiq_antiflicker_buf_addr, isp_private->yiq_antiflicker_len);
+-		if (0 != ret) {
+-			ret = -1;
+-			printk("isp_k_afl_statistic: copy_to_user error, ret = 0x%x\n", (uint32_t)ret);
+-		}
++	if(0x00 == isp_private->anti_flicker_buf_phys_addr) {
++		ret = -1;
++		printk("isp_k_afl_statistic: buffer is null error\n");
+ 	}
+ 
+ 	return ret;
+@@ -73,19 +42,19 @@ static int32_t isp_k_afl_bypass(struct isp_io_param *param)
+ 		return -1;
+ 	}
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
+-	if (bypass) {
+-		REG_OWR(ISP_ANTI_FLICKER_NEW_PARAM0, BIT_0);
+-	} else {
+-		REG_MWR(ISP_ANTI_FLICKER_NEW_PARAM0, BIT_0, 0);
+-	}
+-#else
+-	if (bypass) {
+-		REG_OWR(ISP_ANTI_FLICKER_PARAM0, BIT_0);
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
++		if (bypass) {
++			REG_OWR(ISP_ANTI_FLICKER_NEW_PARAM0, BIT_0);
++		} else {
++			REG_MWR(ISP_ANTI_FLICKER_NEW_PARAM0, BIT_0, 0);
++		}
+ 	} else {
+-		REG_MWR(ISP_ANTI_FLICKER_PARAM0, BIT_0, 0);
++		if (bypass) {
++			REG_OWR(ISP_ANTI_FLICKER_PARAM0, BIT_0);
++		} else {
++			REG_MWR(ISP_ANTI_FLICKER_PARAM0, BIT_0, 0);
++		}
+ 	}
+-#endif
+ 
+ 	return ret;
+ }
+@@ -104,43 +73,59 @@ static int32_t isp_k_anti_flicker_block(struct isp_io_param *param, struct isp_k
+ 		return -1;
+ 	}
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
+-/* Tsahrk3 has 2 anti flicker moudle, only new anti flicker moudle is used.*/
+-	REG_OWR(ISP_ANTI_FLICKER_PARAM0, BIT_0);/*disable old anti flicker moudle*/
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
++		/* Tsahrk3 has 2 anti flicker moudle, only new anti flicker moudle is used.*/
++		REG_OWR(ISP_ANTI_FLICKER_PARAM0, BIT_0);/*disable old anti flicker moudle*/
+ 
+-	REG_MWR(ISP_COMMON_3A_CTRL0, BIT_1, 1 << 1);/*enable new anti flicker moudle*/
++		REG_MWR(ISP_COMMON_3A_CTRL0, BIT_1, 1 << 1);/*enable new anti flicker moudle*/
+ 
+-	REG_MWR(ISP_ANTI_FLICKER_NEW_PARAM0, BIT_0, afl_info.bypass);
++		REG_MWR(ISP_ANTI_FLICKER_NEW_PARAM0, BIT_0, afl_info.bypass);
+ 
+-	REG_MWR(ISP_ANTI_FLICKER_NEW_PARAM0, BIT_1, afl_info.mode << 1);
++		REG_MWR(ISP_ANTI_FLICKER_NEW_PARAM0, BIT_1, afl_info.mode << 1);
+ 
+-	REG_MWR(ISP_ANTI_FLICKER_NEW_PARAM0, 0xF << 2, afl_info.skip_frame_num << 2);
++		REG_MWR(ISP_ANTI_FLICKER_NEW_PARAM0, 0xF << 2, afl_info.skip_frame_num << 2);
+ 
+-	REG_MWR(ISP_ANTI_FLICKER_NEW_PARAM2, 0xFF << 24, afl_info.frame_num << 24);
++		REG_MWR(ISP_ANTI_FLICKER_NEW_PARAM2, 0xFF << 24, afl_info.frame_num << 24);
+ 
+-	REG_MWR(ISP_ANTI_FLICKER_NEW_COL_POS, 0xFFFF , afl_info.start_col);
++		REG_MWR(ISP_ANTI_FLICKER_NEW_COL_POS, 0xFFFF , afl_info.start_col);
+ 
+-	REG_MWR(ISP_ANTI_FLICKER_NEW_COL_POS, 0xFFFF << 16, afl_info.end_col << 16);
+-#else
+-	REG_MWR(ISP_ANTI_FLICKER_PARAM0, BIT_0, afl_info.bypass);
++		REG_MWR(ISP_ANTI_FLICKER_NEW_COL_POS, 0xFFFF << 16, afl_info.end_col << 16);
+ 
+-	REG_MWR(ISP_ANTI_FLICKER_PARAM0, BIT_1, afl_info.mode << 1);
++		REG_WR(ISP_ANTI_FLICKER_NEW_DDR_INIT_ADDR, isp_private->anti_flicker_buf_phys_addr);
++	} else {
++		REG_MWR(ISP_ANTI_FLICKER_PARAM0, BIT_0, afl_info.bypass);
++
++		REG_MWR(ISP_ANTI_FLICKER_PARAM0, BIT_1, afl_info.mode << 1);
++
++		REG_MWR(ISP_ANTI_FLICKER_PARAM0, 0xF << 2, afl_info.skip_frame_num << 2);
++
++		REG_MWR(ISP_ANTI_FLICKER_PARAM1, 0xF , afl_info.line_step);
+ 
+-	REG_MWR(ISP_ANTI_FLICKER_PARAM0, 0xF << 2, afl_info.skip_frame_num << 2);
++		REG_MWR(ISP_ANTI_FLICKER_PARAM1, 0xFF << 8, afl_info.frame_num << 8);
+ 
+-	REG_MWR(ISP_ANTI_FLICKER_PARAM1, 0xF , afl_info.line_step);
++		REG_MWR(ISP_ANTI_FLICKER_PARAM1, 0xFFFF << 16, afl_info.vheight << 16);
+ 
+-	REG_MWR(ISP_ANTI_FLICKER_PARAM1, 0xFF << 8, afl_info.frame_num << 8);
++		REG_MWR(ISP_ANTI_FLICKER_COL_POS, 0xFFFF , afl_info.start_col);
++
++		REG_MWR(ISP_ANTI_FLICKER_COL_POS, 0xFFFF << 16, afl_info.end_col << 16);
++
++		REG_WR(ISP_ANTI_FLICKER_DDR_INIT_ADDR, isp_private->anti_flicker_buf_phys_addr);
++	}
+ 
+-	REG_MWR(ISP_ANTI_FLICKER_PARAM1, 0xFFFF << 16, afl_info.vheight << 16);
++	return ret;
++}
+ 
+-	REG_MWR(ISP_ANTI_FLICKER_COL_POS, 0xFFFF , afl_info.start_col);
++static int32_t isp_k_anti_flicker_transaddr(struct isp_io_param *param,
++			struct isp_k_private *isp_private)
++{
++	int32_t ret = 0;
++	uint32_t addr = 0;
+ 
+-	REG_MWR(ISP_ANTI_FLICKER_COL_POS, 0xFFFF << 16, afl_info.end_col << 16);
+-#endif
++	ret = copy_from_user((void *)&addr, param->property_param, sizeof(uint32_t));
+ 
+-	isp_k_afl_param_update(isp_private);
++	isp_private->anti_flicker_buf_phys_addr = addr;
+ 
++	printk("anti flicker phys addr 0x%x,\n",isp_private->anti_flicker_buf_phys_addr);
+ 	return ret;
+ }
+ 
+@@ -168,6 +153,9 @@ int32_t isp_k_cfg_anti_flicker(struct isp_io_param *param, struct isp_k_private
+ 	case ISP_PRO_ANTI_FLICKER_BYPASS:
+ 		ret = isp_k_afl_bypass(param);
+ 		break;
++	case ISP_PRO_ANTI_FLICKER_TRANSADDR:
++		ret = isp_k_anti_flicker_transaddr(param, isp_private);
++		break;
+ 	default:
+ 		printk("isp_k_cfg_anti_flicker: fail cmd id:%d, not supported.\n", param->property);
+ 		break;
+@@ -175,3 +163,4 @@ int32_t isp_k_cfg_anti_flicker(struct isp_io_param *param, struct isp_k_private
+ 
+ 	return ret;
+ }
++
+diff --git a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_binning4awb.c b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_binning4awb.c
+index e64be9c4..01e32626 100755
+--- a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_binning4awb.c
++++ b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_binning4awb.c
+@@ -18,17 +18,6 @@
+ #include "isp_reg.h"
+ #include "isp_drv.h"
+ 
+-static int32_t isp_k_binging_param_update(struct isp_k_private *isp_private)
+-{
+-	int32_t ret = 0;
+-
+-	/*config buf_id 0 as default*/
+-	isp_private->b4awb_buf[0].buf_flag = 1;
+-	REG_WR(ISP_BINNING_MEM_ADDR, isp_private->b4awb_buf[0].buf_phys_addr);
+-
+-	return ret;
+-}
+-
+ static int32_t isp_k_binning_block(struct isp_io_param *param,
+ 			struct isp_k_private *isp_private)
+ {
+@@ -42,13 +31,6 @@ static int32_t isp_k_binning_block(struct isp_io_param *param,
+ 		return -1;
+ 	}
+ 
+-	if (isp_private->b4awb_buf[0].buf_phys_addr == 0 || isp_private->b4awb_buf[1].buf_phys_addr == 0) {
+-		REG_MWR(ISP_BINNING_PARAM, BIT_0, 0x1);
+-		return ret;
+-	}
+-
+-	isp_k_binging_param_update(isp_private);
+-
+ 	val = (binning_info.burst_mode & 0x3) << 2;
+ 	REG_MWR(ISP_BINNING_PARAM, 0xC, val);
+ 
+@@ -75,7 +57,7 @@ static int32_t isp_k_binging_bypass(struct isp_io_param *param)
+ 	uint32_t bypass = 0;
+ 	ret = copy_from_user((void *)&bypass, param->property_param, sizeof(uint32_t));
+ 	if (0 != ret) {
+-		printk("isp_k_binning_scaling_ratio: copy_from_user error, ret = 0x%x\n",(uint32_t)ret);
++		printk("isp_k_binging_bypass: copy_from_user error, ret = 0x%x\n",(uint32_t)ret);
+ 		return -1;
+ 	}
+ 
+@@ -90,7 +72,7 @@ static int32_t isp_k_binging_endian(struct isp_io_param *param)
+ 	uint32_t endian = 0;
+ 	ret = copy_from_user((void *)&endian, param->property_param, sizeof(uint32_t));
+ 	if (0 != ret) {
+-		printk("isp_k_binning_scaling_ratio: copy_from_user error, ret = 0x%x\n",(uint32_t)ret);
++		printk("isp_k_binging_endian: copy_from_user error, ret = 0x%x\n",(uint32_t)ret);
+ 		return -1;
+ 	}
+ 
+@@ -143,7 +125,7 @@ static int32_t isp_k_binging_mem_addr(struct isp_io_param *param)
+ 
+ 	ret = copy_from_user((void *)&addr, param->property_param, sizeof(uint32_t));
+ 	if (0 != ret) {
+-		printk("isp_k_binning_scaling_ratio: copy_from_user error, ret = 0x%x\n",(uint32_t)ret);
++		printk("isp_k_binging_mem_addr: copy_from_user error, ret = 0x%x\n",(uint32_t)ret);
+ 		return -1;
+ 	}
+ 
+@@ -201,6 +183,68 @@ static int32_t isp_k_binning_buffaddr(struct isp_io_param *param,
+ 	return ret;
+ }
+ 
++static int32_t isp_k_binging_initbuf(struct isp_io_param *param, struct isp_k_private *isp_private)
++{
++	int32_t ret = 0;
++	struct isp_buf_node node;
++
++	if (isp_buf_queue_read(&isp_private->ae_irq_queue, &node)) {
++		isp_private->is_ae_reserved_buf = 1;
++		REG_WR(ISP_BINNING_MEM_ADDR, isp_private->ae_reserved_node.k_addr);
++	} else {
++		isp_private->is_ae_reserved_buf = 0;
++		REG_WR(ISP_BINNING_MEM_ADDR, node.k_addr);
++		isp_private->bin4_cur_node = node;
++	}
++
++	return ret;
++}
++
++int32_t isp_k_binging_switch_bq_buf(struct isp_k_private *isp_private)
++{
++	int32_t ret = 0;
++	struct isp_buf_node node;
++
++	if (isp_private->is_ae_reserved_buf)
++		ret = -1;
++	else
++		isp_buf_queue_write(&isp_private->ae_user_queue, &isp_private->bin4_cur_node);
++
++	if (isp_buf_queue_read(&isp_private->ae_irq_queue, &node)) {
++		isp_private->is_ae_reserved_buf = 1;
++		REG_WR(ISP_BINNING_MEM_ADDR, isp_private->ae_reserved_node.k_addr);
++	} else {
++		isp_private->is_ae_reserved_buf = 0;
++		REG_WR(ISP_BINNING_MEM_ADDR, node.k_addr);
++		isp_private->bin4_cur_node = node;
++	}
++
++
++	return ret;
++}
++
++int32_t isp_k_binning_enqueue_buf(struct isp_k_private *isp_private, struct isp_buf_node *node)
++{
++	int32_t ret = 0;
++
++	if (node->type == ISP_NODE_TYPE_AE_RESERVED)
++		isp_private->ae_reserved_node = *node;
++	else
++		ret = isp_buf_queue_write((struct isp_buf_queue *)&isp_private->ae_irq_queue, node);
++
++	return ret;
++}
++
++int32_t isp_k_binning_dequeue_buf(struct isp_k_private *isp_private, struct isp_buf_node *node)
++{
++	int32_t ret = 0;
++
++	ret = isp_buf_queue_read(&isp_private->ae_user_queue, node);
++
++
++	return ret;
++}
++
+ int32_t isp_k_cfg_binning(struct isp_io_param *param, struct isp_k_private *isp_private)
+ {
+ 	int32_t ret = 0;
+@@ -240,6 +284,9 @@ int32_t isp_k_cfg_binning(struct isp_io_param *param, struct isp_k_private *isp_
+ 	case ISP_PRO_BINNING4AWB_ENDIAN:
+ 		ret = isp_k_binging_endian(param);
+ 		break;
++	case ISP_PRO_BINNING4AWB_INITBUF:
++		ret = isp_k_binging_initbuf(param, isp_private);
++		break;
+ 	default:
+ 		printk("isp_k_cfg_binning: fail cmd id:%d, not supported.\n", param->property);
+ 		break;
+diff --git a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_buf_queue.c b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_buf_queue.c
+new file mode 100644
+index 00000000..a7e6725a
+--- /dev/null
++++ b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_buf_queue.c
+@@ -0,0 +1,229 @@
++/*
++ * Copyright (C) 2012 Spreadtrum Communications Inc.
++ *
++ * This software is licensed under the terms of the GNU General Public
++ * License version 2, as published by the Free Software Foundation, and
++ * may be copied, distributed, and modified under those terms.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ */
++
++#include <linux/uaccess.h>
++#include <linux/sprd_mm.h>
++#include <video/sprd_isp.h>
++#include <linux/kthread.h>
++#include <linux/delay.h>
++#include "isp_reg.h"
++#include "isp_drv.h"
++
++void isp_buf_queue_init(struct isp_buf_queue *queue)
++{
++	if (NULL == queue) {
++		printk("isp_buf_queue_init: queue is null error.\n");
++		return;
++	}
++
++	memset((void*)queue, 0, sizeof(struct isp_buf_queue));
++	queue->write = &queue->node[0];
++	queue->read  = &queue->node[0];
++	queue->cnt = 0;
++}
++
++int32_t isp_buf_queue_write(struct isp_buf_queue *queue, struct isp_buf_node *node)
++{
++	if (NULL == queue || NULL == node) {
++		printk("isp_buf_queue_write: queue or node is null error %p %p\n",
++			queue, node);
++		return -1;
++	}
++
++	if (ISP_BUF_QUEUE_LENGTH == queue->cnt) {
++		return -1;
++	}
++
++	*queue->write++ = *node;
++	if (queue->write > &queue->node[ISP_BUF_QUEUE_LENGTH-1]) {
++		queue->write = &queue->node[0];
++	}
++	queue->cnt++;
++
++
++	return 0;
++}
++
++int32_t isp_buf_queue_read(struct isp_buf_queue *queue, struct isp_buf_node *node)
++{
++	int	ret = 0;
++
++	if (NULL == queue || NULL == node) {
++		printk("isp_buf_queue_read: queue or node is null error %p %p\n",
++			queue, node);
++		return -1;
++	}
++
++	if (0 == queue->cnt) {
++		return -1;
++	}
++
++	*node = *queue->read++;
++	if (queue->read > &queue->node[ISP_BUF_QUEUE_LENGTH-1]) {
++		queue->read = &queue->node[0];
++	}
++	queue->cnt--;
++	return ret;
++}
++
++int32_t isp_k_switch_bq_buf(struct isp_k_private *isp_private, struct isp_node *node)
++{
++	int32_t ret = 0;
++	if (node->irq_val1 & BIT_18) {
++		ret = isp_k_binging_switch_bq_buf(isp_private);
++		if (ret)
++			node->irq_val1 &= ~BIT_18;
++	} else if (node->irq_val1 & BIT_9) {
++		ret = isp_k_rawaem_switch_bq_buf(isp_private);
++		if (ret)
++			node->irq_val1 &= ~BIT_9;
++	}
++
++	return ret;
++}
++
++int isp_k_create_bq_thread(struct isp_k_private *isp_private)
++{
++	isp_private->is_rawae_thread_stop = 0;
++	sema_init(&isp_private->rawae_thread_sem, 0);
++	isp_private->rawae_thread = kthread_run(isp_k_rawaem_thread_loop, isp_private, "isp_rawaem_thread");
++	if (IS_ERR(isp_private->rawae_thread)) {
++		printk("isp_create_rawae_thread error!\n");
++		return -1;
++	}
++
++	return 0;
++}
++
++int isp_k_stop_bq_thread(struct isp_k_private *isp_private)
++{
++	int cnt = 0;
++
++	if (isp_private->rawae_thread) {
++		isp_private->is_rawae_thread_stop = 1;
++		up(&isp_private->rawae_thread_sem);
++		if (0 != isp_private->is_rawae_thread_stop) {
++			while (cnt < 500) {
++				cnt++;
++				if (0 == isp_private->is_rawae_thread_stop)
++					break;
++				msleep(1);
++			}
++		}
++		isp_private->rawae_thread = NULL;
++	}
++
++	return 0;
++}
++
++static int32_t isp_k_bq_enqueue_buf(struct isp_io_param *param, struct isp_k_private *isp_private)
++{
++	int32_t ret = 0;
++	struct isp_buf_node bq_node;
++
++	ret = copy_from_user((void *)&bq_node, param->property_param, sizeof(struct isp_buf_node));
++	if (0 != ret) {
++		printk("isp_k_bq_enqueue_buf: copy_from_user error, ret = 0x%x\n", (uint32_t)ret);
++		return -1;
++	}
++
++	switch (bq_node.type) {
++	case ISP_NODE_TYPE_BINNING4AWB:
++	case ISP_NODE_TYPE_AE_RESERVED:
++		ret = isp_k_binning_enqueue_buf(isp_private, &bq_node);
++		break;
++	case ISP_NODE_TYPE_RAWAEM:
++		ret = isp_k_rawaem_enqueue_buf(isp_private, &bq_node);
++		break;
++	default:
++		printk("isp_k_bq_enqueue_buf: fail cmd id:%d, not supported.\n", bq_node.type);
++		break;
++	}
++
++	return ret;
++}
++
++static int32_t isp_k_bq_dequeue_buf(struct isp_io_param *param, struct isp_k_private *isp_private)
++{
++	int32_t ret = 0;
++	struct isp_buf_node bq_node;
++
++	ret = copy_from_user((void *)&bq_node, param->property_param, sizeof(struct isp_buf_node));
++	if (0 != ret) {
++		printk("isp_k_bq_dequeue_buf: copy_from_user error, ret = 0x%x\n", (uint32_t)ret);
++		return -1;
++	}
++
++	switch (bq_node.type) {
++	case ISP_NODE_TYPE_BINNING4AWB:
++		ret = isp_k_binning_dequeue_buf(isp_private, &bq_node);
++		break;
++	case ISP_NODE_TYPE_RAWAEM:
++		ret = isp_k_rawaem_dequeue_buf(isp_private, &bq_node);
++		break;
++	default:
++		printk("isp_k_bq_dequeue_buf: fail cmd id:%d, not supported.\n", bq_node.type);
++		break;
++	}
++
++	ret = copy_to_user(param->property_param, (void*)&bq_node, sizeof(struct isp_buf_node));
++	if (0 != ret) {
++		ret = -1;
++		printk("isp_k_bq_dequeue_buf: copy error, ret=0x%x\n", (uint32_t)ret);
++	}
++
++	return ret;
++}
++
++static int32_t isp_k_bq_init(struct isp_io_param *param, struct isp_k_private *isp_private)
++{
++	isp_buf_queue_init(&isp_private->ae_irq_queue);
++	isp_buf_queue_init(&isp_private->ae_user_queue);
++	isp_private->is_ae_reserved_buf = 0;
++	isp_private->is_rawae_schedule = 0;
++	sema_init(&isp_private->rawae_schedule_sem, 0);
++
++	return 0;
++}
++
++int32_t isp_k_cfg_buf_queue(struct isp_io_param *param, struct isp_k_private *isp_private)
++{
++	int32_t ret = 0;
++
++	if (!param) {
++		printk("isp_k_cfg_buf_queue: param is null error.\n");
++		return -1;
++	}
++
++	if (NULL == param->property_param) {
++		printk("isp_k_cfg_buf_queue: property_param is null error.\n");
++		return -1;
++	}
++
++	switch (param->property) {
++	case ISP_PRO_BUFQUEUE_ENQUEUE_BUF:
++		ret = isp_k_bq_enqueue_buf(param, isp_private);
++		break;
++	case ISP_PRO_BUFQUEUE_DEQUEUE_BUF:
++		ret = isp_k_bq_dequeue_buf(param, isp_private);
++		break;
++	case ISP_PRO_BUFQUEUE_INIT:
++		ret = isp_k_bq_init(param, isp_private);
++		break;
++	default:
++		printk("isp_k_cfg_buf_queue: fail cmd id:%d, not supported.\n", param->property);
++		break;
++	}
++
++	return ret;
++}
+diff --git a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_capability.c b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_capability.c
+index 32d66060..6995b09d 100755
+--- a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_capability.c
++++ b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_capability.c
+@@ -14,9 +14,10 @@
+ #include <linux/uaccess.h>
+ #include <linux/sprd_mm.h>
+ #include <video/sprd_isp.h>
++#include <soc/sprd/arch_misc.h>
+ #include "isp_reg.h"
+ 
+-#if defined(CONFIG_ARCH_SCX35LT8)
++#if defined(CONFIG_ARCH_SCX35LT8) || defined(CONFIG_ARCH_WHALE)
+ #define ISP_MAX_WIDTH             4416
+ #define ISP_MAX_HEIGHT            3168
+ #define ISP_MAX_SLICE_WIDTH       4416
+@@ -36,11 +37,11 @@ static int32_t isp_k_capability_chip_id(struct isp_capability *param)
+ 	int32_t ret = 0;
+ 	uint32_t chip_id = 0;
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
+-	chip_id = ISP_CHIP_ID_TSHARK3;
+-#else
+-	chip_id = ISP_CHIP_ID_TSHARK2;
+-#endif
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
++		chip_id = ISP_CHIP_ID_TSHARK3;
++	} else {
++		chip_id = ISP_CHIP_ID_TSHARK2;
++	}
+ 
+ 	ret = copy_to_user(param->property_param, (void*)&chip_id, sizeof(chip_id));
+ 	if (0 != ret) {
+diff --git a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_fetch.c b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_fetch.c
+index 721afc21..3784c038 100755
+--- a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_fetch.c
++++ b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_fetch.c
+@@ -84,6 +84,13 @@ static int32_t isp_k_fetch_start_isp(struct isp_io_param *param)
+ 		return -1;
+ 	}
+ 
++#if defined(CONFIG_ARCH_WHALE)
++	REG_OWR(ISP_RAW_SIZER_PARAM, 0x07);
++
++	REG_MWR(ISP_COMMON_CTRL_CH0, 3<<16, 0<<16);
++	REG_MWR(ISP_COMMON_CTRL_CH0, 3, 0);
++#endif
++
+ 	if (fetch_start) {
+ 		REG_OWR(ISP_FETCH_START, BIT_0);
+ 	} else {
+diff --git a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_gamma.c b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_gamma.c
+index ad82d0be..36dfc574 100755
+--- a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_gamma.c
++++ b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_gamma.c
+@@ -15,6 +15,7 @@
+ #include <linux/vmalloc.h>
+ #include <linux/sprd_mm.h>
+ #include <video/sprd_isp.h>
++#include <soc/sprd/arch_misc.h>
+ #include "isp_reg.h"
+ #include "isp_drv.h"
+ 
+@@ -53,25 +54,26 @@ static int32_t isp_k_pingpang_frgb_gamc(struct coordinate_xy *nodes,
+ 		isp_private->full_gamma_buf_id = ISP_FRGB_GAMC_BUF0;
+ 	}
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
+-	for(i = 0,j = 0; i < (ISP_PINGPANG_FRGB_GAMC_NUM - 1); i++, j+= 4) {
+-		gamma_node = (((p_nodes[i].node_y & 0xFF) << 8) | (p_nodes[i + 1].node_y & 0xFF)) & 0xFFFF;
+-		REG_WR(r_buf_addr + j, gamma_node);
+-		REG_WR(g_buf_addr + j, gamma_node);
+-		REG_WR(b_buf_addr + j, gamma_node);
+-	}
+-#else
+-	for(i = 0, j = 0; i < ISP_PINGPANG_FRGB_GAMC_NODE; i++, j+= 4) {
+-		if (i < ISP_PINGPANG_FRGB_GAMC_NODE - 1) {
+-			gamma_node = (p_nodes[i * 2].node_y + p_nodes[i * 2 + 1].node_y) >> 1;
+-		} else {
+-			gamma_node = p_nodes[i * 2 -1].node_y;
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
++		for(i = 0,j = 0; i < (ISP_PINGPANG_FRGB_GAMC_NUM - 1); i++, j+= 4) {
++			gamma_node = (((p_nodes[i].node_y & 0xFF) << 8) | (p_nodes[i + 1].node_y & 0xFF)) & 0xFFFF;
++			REG_WR(r_buf_addr + j, gamma_node);
++			REG_WR(g_buf_addr + j, gamma_node);
++			REG_WR(b_buf_addr + j, gamma_node);
++		}
++	} else {
++		for(i = 0, j = 0; i < ISP_PINGPANG_FRGB_GAMC_NODE; i++, j+= 4) {
++			if (i < ISP_PINGPANG_FRGB_GAMC_NODE - 1) {
++				gamma_node = (p_nodes[i * 2].node_y + p_nodes[i * 2 + 1].node_y) >> 1;
++			} else {
++				gamma_node = p_nodes[i * 2 -1].node_y;
++			}
++			REG_WR(r_buf_addr + j, gamma_node & 0xff);
++			REG_WR(g_buf_addr + j, gamma_node & 0xff);
++			REG_WR(b_buf_addr + j, gamma_node & 0xff);
+ 		}
+-		REG_WR(r_buf_addr + j, gamma_node & 0xff);
+-		REG_WR(g_buf_addr + j, gamma_node & 0xff);
+-		REG_WR(b_buf_addr + j, gamma_node & 0xff);
+ 	}
+-#endif
++
+ 	val = ((isp_private->full_gamma_buf_id & 0x1 ) << 1) | ((isp_private->full_gamma_buf_id & 0x1) << 2) | ((isp_private->full_gamma_buf_id & 0x1 ) << 3);
+ 	REG_MWR(ISP_GAMMA_PARAM, 0x0000000E, val);
+ 
+diff --git a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_isr.c b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_isr.c
+index fe77be30..7bdc92ac 100755
+--- a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_isr.c
++++ b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_isr.c
+@@ -15,6 +15,7 @@
+ #include <linux/sprd_mm.h>
+ #include <video/sprd_isp.h>
+ #include <linux/delay.h>
++#include <soc/sprd/arch_misc.h>
+ #include "isp_reg.h"
+ #include "isp_drv.h"
+ 
+@@ -56,15 +57,16 @@ void isp_en_irq(uint32_t irq_mode)
+ 
+ 	switch(irq_mode) {
+ 	case ISP_INT_VIDEO_MODE:
+-#if defined(CONFIG_ARCH_SCX30G3)
+-		REG_WR(ISP_INT_EN0, ISP_INT_DCAMERA_SOF | ISP_INT_AEM_DONE | ISP_INT_AFM_RGB_DONE | ISP_INT_AFM_Y_DONE | ISP_INT_AEM2_DONE);
+-		REG_WR(ISP_INT_EN1, 0);
+-		REG_WR(ISP_INT_EN2, ISP_INT_AFL_NEW_DDR_DONE);
+-#else
+-		REG_WR(ISP_INT_EN0, ISP_INT_DCAMERA_SOF | ISP_INT_AEM_DONE | ISP_INT_AFM_RGB_DONE | ISP_INT_AFM_Y_DONE | ISP_INT_AEM2_DONE | ISP_INT_AFL_DONE);
+-		REG_WR(ISP_INT_EN1, 0);
+-		REG_WR(ISP_INT_EN2, 0);
+-#endif
++		if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
++			REG_WR(ISP_INT_EN0, ISP_INT_DCAMERA_SOF | ISP_INT_AEM_DONE | ISP_INT_AFM_RGB_DONE | ISP_INT_AFM_Y_DONE | ISP_INT_AEM2_DONE);
++			REG_WR(ISP_INT_EN1, 0);
++			REG_WR(ISP_INT_EN2, ISP_INT_AFL_NEW_DDR_DONE);
++		} else {
++			REG_WR(ISP_INT_EN0, ISP_INT_DCAMERA_SOF | ISP_INT_AEM_DONE | ISP_INT_AFM_RGB_DONE | ISP_INT_AFM_Y_DONE | ISP_INT_AFL_DONE | ISP_INT_AEM2_DONE \
++				| ISP_INT_BINNING_DONE);
++			REG_WR(ISP_INT_EN1, 0);
++			REG_WR(ISP_INT_EN2, 0);
++		}
+ 		break;
+ 	case ISP_INT_CAPTURE_MODE:
+ 		REG_WR(ISP_INT_EN0, ISP_INT_STORE_DONE);
+diff --git a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_nlm.c b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_nlm.c
+index 33744add..d7a72fc5 100755
+--- a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_nlm.c
++++ b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_nlm.c
+@@ -15,6 +15,7 @@
+ #include <linux/sprd_mm.h>
+ #include <video/sprd_isp.h>
+ #include <linux/vmalloc.h>
++#include <soc/sprd/arch_misc.h>
+ #include "isp_reg.h"
+ #include "isp_drv.h"
+ 
+@@ -35,6 +36,7 @@ static int32_t isp_k_vst_block(struct isp_io_param *param)
+ 	REG_MWR(ISP_VST_PARA, BIT_0, vst_info.bypass);
+ 
+ 	return ret;
++
+ }
+ 
+ static int32_t isp_k_nlm_block(struct isp_io_param *param,
+@@ -139,13 +141,13 @@ static int32_t isp_k_nlm_block(struct isp_io_param *param,
+ 
+ 	REG_MWR(ISP_NLM_ADD_BACK, 0x7F, nlm_info.addback);
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
+-	REG_MWR(ISP_NLM_ADD_BACK_NEW0, 0x7F, nlm_info.addback);
+-	REG_MWR(ISP_NLM_ADD_BACK_NEW0, (0x7F << 8), (nlm_info.addback << 8));
+-	REG_MWR(ISP_NLM_ADD_BACK_NEW0, (0x7F << 16), (nlm_info.addback << 16));
+-	REG_MWR(ISP_NLM_ADD_BACK_NEW0, (0x7F << 24), (nlm_info.addback << 24));
+-	REG_MWR(ISP_NLM_ADD_BACK_NEW1, 0x7F, nlm_info.addback);
+-#endif
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
++		REG_MWR(ISP_NLM_ADD_BACK_NEW0, 0x7F, nlm_info.addback);
++		REG_MWR(ISP_NLM_ADD_BACK_NEW0, (0x7F << 8), (nlm_info.addback << 8));
++		REG_MWR(ISP_NLM_ADD_BACK_NEW0, (0x7F << 16), (nlm_info.addback << 16));
++		REG_MWR(ISP_NLM_ADD_BACK_NEW0, (0x7F << 24), (nlm_info.addback << 24));
++		REG_MWR(ISP_NLM_ADD_BACK_NEW1, 0x7F, nlm_info.addback);
++	}
+ 
+ 	REG_MWR(ISP_NLM_ADD_BACK, BIT_7, nlm_info.opt_mode << 7);
+ 
+@@ -207,6 +209,7 @@ static int32_t isp_k_ivst_block(struct isp_io_param *param)
+ 	REG_MWR(ISP_IVST_PARA, BIT_0, ivst_info.bypass);
+ 
+ 	return ret;
++
+ }
+ 
+ int32_t isp_k_cfg_nlm(struct isp_io_param *param,
+@@ -232,7 +235,7 @@ int32_t isp_k_cfg_nlm(struct isp_io_param *param,
+ 		ret = isp_k_nlm_block(param, isp_private);
+ 		break;
+ 	case ISP_PRO_IVST_BLOCK:
+-		ret = isp_k_ivst_block(param);;
++		ret = isp_k_ivst_block(param);
+ 		break;
+ 	default:
+ 		printk("isp_k_cfg_nlm: fail cmd id:%d, not supported.\n", param->property);
+diff --git a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_raw_aem.c b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_raw_aem.c
+index 5e4509d5..dfed0814 100755
+--- a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_raw_aem.c
++++ b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_raw_aem.c
+@@ -17,6 +17,8 @@
+ #include "isp_reg.h"
+ #include "isp_drv.h"
+ 
++#define ISP_RAWAEM_TIMEOUT msecs_to_jiffies(1000)
++
+ static int32_t isp_k_raw_aem_block(struct isp_io_param *param)
+ {
+ 	int32_t ret = 0;
+@@ -84,7 +86,7 @@ static int32_t isp_k_raw_aem_statistics(struct isp_io_param *param,
+ 	unsigned long addr = 0;
+ 	struct isp_raw_aem_statistics *aem_statistics = NULL;
+ 
+-	aem_statistics = (struct isp_raw_aem_statistics *)isp_private->raw_aem_buf_addr;
++	/*aem_statistics = (struct isp_raw_aem_statistics *)isp_private->raw_aem_buf_addr;*/
+ 	if (!aem_statistics) {
+ 		ret = -1;
+ 		printk("isp_k_raw_aem_statistics: alloc memory error.\n");
+@@ -203,6 +205,103 @@ static int32_t isp_k_raw_aem_slice_size(struct isp_io_param *param)
+ 	return ret;
+ }
+ 
++static int32_t isp_k_raw_aem_get_statistics(struct isp_buf_node *node, struct isp_k_private *isp_private)
++{
++	int32_t ret = 0, i = 0;
++	uint32_t val0 = 0, val1 = 0;
++	unsigned long addr = 0;
++	struct isp_raw_aem_statistics *aem_statistics = NULL;
++
++	aem_statistics = (struct isp_raw_aem_statistics *)(node->k_addr);
++	if (!aem_statistics) {
++		ret = -1;
++		printk("isp_k_raw_aem_get_statistics: alloc memory error.\n");
++		return -1;
++	}
++
++	addr = ISP_RAW_AEM_OUTPUT;
++	for (i = 0x00; i < ISP_RAW_AEM_ITEM; i++) {
++		val0 = REG_RD(addr);
++		val1 = REG_RD(addr + 4);
++		aem_statistics->r[i] = (val1 >> 11) & 0x1fffff;
++		aem_statistics->g[i] = val0 & 0x3fffff;
++		aem_statistics->b[i] = ((val1 & 0x7ff) << 10) | ((val0 >> 22) & 0x3ff);
++		addr += 8;
++	}
++
++	isp_buf_queue_write(&isp_private->ae_user_queue, node);
++
++	return ret;
++}
++
++int isp_k_rawaem_thread_loop(void *arg)
++{
++	struct isp_k_private *isp_private = (struct isp_k_private *)arg;
++
++	if (isp_private == NULL) {
++		printk("isp_k_rawaem_thread_loop, isp_private is NULL \n");
++		return -1;
++	}
++	while (1) {
++		if (0 == down_interruptible(&isp_private->rawae_thread_sem)) {
++			if (isp_private->is_rawae_thread_stop) {
++				printk("isp_k_rawaem_thread_loop stop \n");
++				break;
++			}
++			isp_k_raw_aem_get_statistics(&isp_private->rawae_cur_node, isp_private);
++			up(&isp_private->rawae_schedule_sem);
++			isp_private->is_rawae_schedule = 0;
++		} else {
++			printk("isp_k_rawaem_thread_loop wait sem failed!\n");
++			break;
++		}
++	}
++	isp_private->is_rawae_thread_stop = 0;
++
++	return 0;
++}
++
++int32_t isp_k_rawaem_switch_bq_buf(struct isp_k_private *isp_private)
++{
++	int32_t ret = 0;
++	struct isp_buf_node node;
++
++	if (isp_private->is_rawae_schedule
++			|| isp_buf_queue_read(&isp_private->ae_irq_queue, &node)) {
++		ret = -1;
++	} else {
++		isp_private->rawae_cur_node = node;
++		up(&isp_private->rawae_thread_sem);
++		isp_private->is_rawae_schedule = 1;
++	}
++
++	return ret;
++}
++
++int32_t isp_k_rawaem_enqueue_buf(struct isp_k_private *isp_private, struct isp_buf_node *node)
++{
++	int32_t ret = 0;
++
++	ret = isp_buf_queue_write((struct isp_buf_queue *)&isp_private->ae_irq_queue, node);
++
++	return ret;
++}
++
++int32_t isp_k_rawaem_dequeue_buf(struct isp_k_private *isp_private, struct isp_buf_node *node)
++{
++	int32_t ret = 0;
++
++	ret = down_timeout(&isp_private->rawae_schedule_sem, ISP_RAWAEM_TIMEOUT);
++	if (ret) {
++		printk("isp_k_rawaem_dequeue_buf wait sem failed\n");
++		return -1;
++	}
++
++	isp_buf_queue_read(&isp_private->ae_user_queue, node);
++
++	return ret;
++}
++
+ int32_t isp_k_cfg_raw_aem(struct isp_io_param *param,
+ 		struct isp_k_private *isp_private)
+ {
+diff --git a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_raw_afm.c b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_raw_afm.c
+index e8c29fb1..2cf3d75b 100755
+--- a/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_raw_afm.c
++++ b/drivers/media/sprd_isp/isp2.0/tshark2/src/isp_k_raw_afm.c
+@@ -14,6 +14,7 @@
+ #include <linux/uaccess.h>
+ #include <linux/sprd_mm.h>
+ #include <video/sprd_isp.h>
++#include <soc/sprd/arch_misc.h>
+ #include "isp_reg.h"
+ 
+ #define ISP_AFM_WIN_NUM_V1  25
+@@ -46,84 +47,84 @@ static int32_t isp_k_raw_afm_block(struct isp_io_param *param)
+ 
+ 	REG_MWR(ISP_RGB_AFM_PARAM, BIT_8, rafm_info.spsmd_diagonal_enable << 8);
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
+ 
+-	max_num = ISP_AFM_WIN_NUM_R6P9;
+-	addr = ISP_RGB_AFM_WINDOW_RANGE;
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
++		max_num = ISP_AFM_WIN_NUM_R6P9;
++		addr = ISP_RGB_AFM_WINDOW_RANGE;
+ 
+-	REG_MWR(ISP_RGB_AFM_PARAM, BIT_9, rafm_info.spsmd_square_en << 9);
++		REG_MWR(ISP_RGB_AFM_PARAM, BIT_9, rafm_info.spsmd_square_en << 9);
+ 
+-	REG_MWR(ISP_RGB_AFM_PARAM, BIT_12, rafm_info.overflow_protect_en << 12);
++		REG_MWR(ISP_RGB_AFM_PARAM, BIT_12, rafm_info.overflow_protect_en << 12);
+ 
+-	REG_MWR(ISP_RGB_AFM_PARAM, BIT_13, rafm_info.subfilter.average << 13);
++		REG_MWR(ISP_RGB_AFM_PARAM, BIT_13, rafm_info.subfilter.average << 13);
+ 
+-	REG_MWR(ISP_RGB_AFM_PARAM, BIT_14, rafm_info.subfilter.median << 14);
++		REG_MWR(ISP_RGB_AFM_PARAM, BIT_14, rafm_info.subfilter.median << 14);
+ 
+-	REG_MWR(ISP_RGB_AFM_PARAM, BIT_15, rafm_info.spsmd_touch_mode << 15);
++		REG_MWR(ISP_RGB_AFM_PARAM, BIT_15, rafm_info.spsmd_touch_mode << 15);
+ 
+-	REG_MWR(ISP_RGB_AFM_PARAM, (BIT_18) | (BIT_17) | (BIT_16), rafm_info.shift.shift_spsmd << 16);
++		REG_MWR(ISP_RGB_AFM_PARAM, (BIT_18) | (BIT_17) | (BIT_16), rafm_info.shift.shift_spsmd << 16);
+ 
+-	REG_MWR(ISP_RGB_AFM_PARAM, (BIT_21) | (BIT_20) | (BIT_19), rafm_info.shift.shift_sobel9 << 19);
++		REG_MWR(ISP_RGB_AFM_PARAM, (BIT_21) | (BIT_20) | (BIT_19), rafm_info.shift.shift_sobel9 << 19);
+ 
+-	REG_MWR(ISP_RGB_AFM_PARAM, (BIT_27) | (BIT_26) | (BIT_25), rafm_info.shift.shift_sobel5 << 25);
++		REG_MWR(ISP_RGB_AFM_PARAM, (BIT_27) | (BIT_26) | (BIT_25), rafm_info.shift.shift_sobel5 << 25);
+ 
+-	val = ((rafm_info.thrd.sobel5_thr_max_red << 16) & 0x3FFF0000)
+-			| (rafm_info.thrd.sobel5_thr_min_red & 0x0FFF);
+-	REG_WR(ISP_RGB_AFM_SOBEL5_THR_RED, val);
++		val = ((rafm_info.thrd.sobel5_thr_max_red << 16) & 0x3FFF0000)
++				| (rafm_info.thrd.sobel5_thr_min_red & 0x0FFF);
++		REG_WR(ISP_RGB_AFM_SOBEL5_THR_RED, val);
+ 
+-	val = ((rafm_info.thrd.sobel5_thr_max_green << 16) & 0x3FFF0000)
+-			| (rafm_info.thrd.sobel5_thr_min_green & 0x0FFF);
+-	REG_WR(ISP_RGB_AFM_SOBEL5_THR_GREEN, val);
++		val = ((rafm_info.thrd.sobel5_thr_max_green << 16) & 0x3FFF0000)
++				| (rafm_info.thrd.sobel5_thr_min_green & 0x0FFF);
++		REG_WR(ISP_RGB_AFM_SOBEL5_THR_GREEN, val);
+ 
+-	val = ((rafm_info.thrd.sobel5_thr_max_blue << 16) & 0x3FFF0000)
+-			| (rafm_info.thrd.sobel5_thr_min_blue & 0x0FFF);
+-	REG_WR(ISP_RGB_AFM_SOBEL5_THR_BLUE, val);
++		val = ((rafm_info.thrd.sobel5_thr_max_blue << 16) & 0x3FFF0000)
++				| (rafm_info.thrd.sobel5_thr_min_blue & 0x0FFF);
++		REG_WR(ISP_RGB_AFM_SOBEL5_THR_BLUE, val);
+ 
+-	val = ((rafm_info.thrd.sobel9_thr_max_red << 16) & 0x3FFF0000)
+-			| (rafm_info.thrd.sobel9_thr_min_red & 0x0FFF);
+-	REG_WR(ISP_RGB_AFM_SOBEL9_THR_RED, val);
++		val = ((rafm_info.thrd.sobel9_thr_max_red << 16) & 0x3FFF0000)
++				| (rafm_info.thrd.sobel9_thr_min_red & 0x0FFF);
++		REG_WR(ISP_RGB_AFM_SOBEL9_THR_RED, val);
+ 
+-	val = ((rafm_info.thrd.sobel9_thr_max_green << 16) & 0x3FFF0000)
+-			| (rafm_info.thrd.sobel9_thr_min_green & 0x0FFF);
+-	REG_WR(ISP_RGB_AFM_SOBEL9_THR_GREEN, val);
++		val = ((rafm_info.thrd.sobel9_thr_max_green << 16) & 0x3FFF0000)
++				| (rafm_info.thrd.sobel9_thr_min_green & 0x0FFF);
++		REG_WR(ISP_RGB_AFM_SOBEL9_THR_GREEN, val);
+ 
+-	val = ((rafm_info.thrd.sobel9_thr_max_blue << 16) & 0x3FFF0000)
+-			| (rafm_info.thrd.sobel9_thr_min_blue & 0x0FFF);
+-	REG_WR(ISP_RGB_AFM_SOBEL9_THR_BLUE, val);
++		val = ((rafm_info.thrd.sobel9_thr_max_blue << 16) & 0x3FFF0000)
++				| (rafm_info.thrd.sobel9_thr_min_blue & 0x0FFF);
++		REG_WR(ISP_RGB_AFM_SOBEL9_THR_BLUE, val);
+ 
+-	val = ((rafm_info.thrd.spsmd_thr_max_red << 12) & 0x7FFFF000)
+-			| (rafm_info.thrd.spsmd_thr_min_red & 0x0FFF);
+-	REG_WR(ISP_RGB_AFM_SPSMD_THR_RED, val);
++		val = ((rafm_info.thrd.spsmd_thr_max_red << 12) & 0x7FFFF000)
++				| (rafm_info.thrd.spsmd_thr_min_red & 0x0FFF);
++		REG_WR(ISP_RGB_AFM_SPSMD_THR_RED, val);
+ 
+-	val = ((rafm_info.thrd.spsmd_thr_max_green << 12) & 0x7FFFF000)
+-			| (rafm_info.thrd.spsmd_thr_min_green & 0x0FFF);
+-	REG_WR(ISP_RGB_AFM_SPSMD_THR_GREEN, val);
++		val = ((rafm_info.thrd.spsmd_thr_max_green << 12) & 0x7FFFF000)
++				| (rafm_info.thrd.spsmd_thr_min_green & 0x0FFF);
++		REG_WR(ISP_RGB_AFM_SPSMD_THR_GREEN, val);
+ 
+-	val = ((rafm_info.thrd.spsmd_thr_max_blue << 12) & 0x7FFFF000)
+-			| (rafm_info.thrd.spsmd_thr_min_blue & 0x0FFF);
+-	REG_WR(ISP_RGB_AFM_SPSMD_THR_BLUE, val);
++		val = ((rafm_info.thrd.spsmd_thr_max_blue << 12) & 0x7FFFF000)
++				| (rafm_info.thrd.spsmd_thr_min_blue & 0x0FFF);
++		REG_WR(ISP_RGB_AFM_SPSMD_THR_BLUE, val);
+ 
+-#else
+-	max_num = ISP_AFM_WIN_NUM_V1;
+-	addr = ISP_RGB_AFM_WIN_RANGE0;
++	} else {
++		max_num = ISP_AFM_WIN_NUM_V1;
++		addr = ISP_RGB_AFM_WIN_RANGE0;
+ 
+-	REG_MWR(ISP_RGB_AFM_PARAM, BIT_9, rafm_info.spsmd_cal_mode << 9);
++		REG_MWR(ISP_RGB_AFM_PARAM, BIT_9, rafm_info.spsmd_cal_mode << 9);
+ 
+-	REG_MWR(ISP_RGB_AFM_PARAM, BIT_10, rafm_info.af_sel_filter1 << 10);
++		REG_MWR(ISP_RGB_AFM_PARAM, BIT_10, rafm_info.af_sel_filter1 << 10);
+ 
+-	REG_MWR(ISP_RGB_AFM_PARAM, BIT_11, rafm_info.af_sel_filter2 << 11);
++		REG_MWR(ISP_RGB_AFM_PARAM, BIT_11, rafm_info.af_sel_filter2 << 11);
+ 
+-	REG_MWR(ISP_RGB_AFM_PARAM, BIT_12, rafm_info.sobel_type << 12);
++		REG_MWR(ISP_RGB_AFM_PARAM, BIT_12, rafm_info.sobel_type << 12);
+ 
+-	REG_MWR(ISP_RGB_AFM_PARAM, (BIT_13)|(BIT_14), rafm_info.spsmd_type << 13);
++		REG_MWR(ISP_RGB_AFM_PARAM, (BIT_13)|(BIT_14), rafm_info.spsmd_type << 13);
+ 
+-	val = ((rafm_info.sobel_threshold_max << 16) & 0xffff0000)
+-			| (rafm_info.sobel_threshold_min & 0xffff);
+-	REG_WR(ISP_RGB_AFM_SOBEL_THRESHOLD, val);
++		val = ((rafm_info.sobel_threshold_max << 16) & 0xffff0000)
++				| (rafm_info.sobel_threshold_min & 0xffff);
++		REG_WR(ISP_RGB_AFM_SOBEL_THRESHOLD, val);
+ 
+-	REG_WR(ISP_RGB_AFM_SPSMD_THRESHOLD_MIN, rafm_info.spsmd_threshold_min);
+-	REG_WR(ISP_RGB_AFM_SPSMD_THRESHOLD_MAX, rafm_info.spsmd_threshold_max);
+-#endif
++		REG_WR(ISP_RGB_AFM_SPSMD_THRESHOLD_MIN, rafm_info.spsmd_threshold_min);
++		REG_WR(ISP_RGB_AFM_SPSMD_THRESHOLD_MAX, rafm_info.spsmd_threshold_max);
++	}
+ 
+ 	for (i = 0; i < max_num; i++) {
+ 		val = ((rafm_info.coord[i].start_y << 16) & 0xFFFF0000)
+@@ -159,23 +160,23 @@ static int32_t isp_k_raw_afm_type1_statistic(struct isp_io_param *param)
+ {
+ 	int32_t ret = 0;
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
+ 
+-#else
+-	int i = 0;
+-	int max_item = ISP_AFM_WIN_NUM_V1;
+-	struct isp_raw_afm_statistic item;
++	} else {
++		int i = 0;
++		int max_item = ISP_AFM_WIN_NUM_V1;
++		struct isp_raw_afm_statistic item;
+ 
+-	memset(&item, 0, sizeof(struct isp_raw_afm_statistic));
+-	for (i = 0; i < max_item; i++) {
+-		item.val[i] = REG_RD((ISP_RGB_AFM_TYPE1_VAL00 + 4 * i));
+-	}
+-	ret = copy_to_user(param->property_param, (void*)&item, sizeof(item));
+-	if (0 != ret) {
+-		ret = -1;
+-		printk("isp_k_raw_afm_type1_statistic: error, ret = 0x%x\n", (uint32_t)ret);
++		memset(&item, 0, sizeof(struct isp_raw_afm_statistic));
++		for (i = 0; i < max_item; i++) {
++			item.val[i] = REG_RD((ISP_RGB_AFM_TYPE1_VAL00 + 4 * i));
++		}
++		ret = copy_to_user(param->property_param, (void*)&item, sizeof(item));
++		if (0 != ret) {
++			ret = -1;
++			printk("isp_k_raw_afm_type1_statistic: error, ret = 0x%x\n", (uint32_t)ret);
++		}
+ 	}
+-#endif
+ 
+ 	return ret;
+ }
+@@ -184,23 +185,23 @@ static int32_t isp_k_raw_afm_type2_statistic(struct isp_io_param *param)
+ {
+ 	int32_t ret = 0;
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
+ 
+-#else
+-	int i = 0;
+-	int max_item = ISP_AFM_WIN_NUM_V1;
+-	struct isp_raw_afm_statistic item;
++	} else {
++		int i = 0;
++		int max_item = ISP_AFM_WIN_NUM_V1;
++		struct isp_raw_afm_statistic item;
+ 
+-	memset(&item, 0, sizeof(struct isp_raw_afm_statistic));
+-	for (i = 0; i < max_item; i++) {
+-		item.val[i] = REG_RD((ISP_RGB_AFM_TYPE2_VAL00 + 4 * i));
+-	}
+-	ret = copy_to_user(param->property_param, (void*)&item, sizeof(item));
+-	if (0 != ret) {
+-		ret = -1;
+-		printk("isp_k_raw_afm_type2_statistic: error, ret = 0x%x\n", (uint32_t)ret);
++		memset(&item, 0, sizeof(struct isp_raw_afm_statistic));
++		for (i = 0; i < max_item; i++) {
++			item.val[i] = REG_RD((ISP_RGB_AFM_TYPE2_VAL00 + 4 * i));
++		}
++		ret = copy_to_user(param->property_param, (void*)&item, sizeof(item));
++		if (0 != ret) {
++			ret = -1;
++			printk("isp_k_raw_afm_type2_statistic: error, ret = 0x%x\n", (uint32_t)ret);
++		}
+ 	}
+-#endif
+ 
+ 	return ret;
+ }
+@@ -209,53 +210,53 @@ static int32_t isp_k_raw_afm_statistic_r6p9(struct isp_io_param *param)
+ {
+ 	int32_t ret = 0;
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
+-	int i = 0, j = 0;
+-	int max_item = ISP_AFM_WIN_NUM_R6P9;
+-	unsigned long addr_sobel5 = ISP_RGB_AFM_ROI_SOBEL5X5;
+-	unsigned long addr_sobel9 = ISP_RGB_AFM_ROI_SOBEL9X9;
+-	unsigned long addr_spsmd = ISP_RGB_AFM_ROI_SPSMD;
+-	unsigned long addr_high_bit = ISP_RGB_AFM_HIGHT_BIT_ROI;
+-	struct isp_raw_afm_statistic_r6p9 item;
+-
+-	memset(&item, 0, sizeof(struct isp_raw_afm_statistic_r6p9));
+-	for (i = 0; i < max_item; i++) {
+-		item.val[j] = REG_RD(addr_sobel5);
+-		item.val[j + 1] = REG_RD(addr_sobel5 + 4);
+-		item.val[j + 2] = REG_RD(addr_sobel5 + 8);
+-
+-		item.val[ISP_AFM_WIN_NUM_R6P9 * 3 + j] = REG_RD(addr_sobel9);
+-		item.val[ISP_AFM_WIN_NUM_R6P9 * 3 + j + 1] = REG_RD(addr_sobel9 + 4);
+-		item.val[ISP_AFM_WIN_NUM_R6P9 * 3 + j + 2] = REG_RD(addr_sobel9 + 8);
+-
+-		item.val[ISP_AFM_WIN_NUM_R6P9 * 3 * 2 + j] = REG_RD(addr_spsmd);
+-		item.val[ISP_AFM_WIN_NUM_R6P9 * 3 * 2 + j + 1] = REG_RD(addr_spsmd + 4);
+-		item.val[ISP_AFM_WIN_NUM_R6P9 * 3 * 2 + j + 2] = REG_RD(addr_spsmd + 8);
+-
+-		j += 3;
+-		addr_sobel5 += 12;
+-		addr_sobel9 += 12;
+-		addr_spsmd += 12;
+-	}
+-
+-	j = 0;
+-	addr_high_bit = ISP_RGB_AFM_HIGHT_BIT_ROI;
+-	for (i = 0; i < 3; i++) {
+-		item.val[ISP_AFM_WIN_NUM_R6P9 * 3 * 3 + j] = REG_RD(addr_high_bit);
+-		item.val[ISP_AFM_WIN_NUM_R6P9 * 3 * 3 + j + 1] = REG_RD(addr_high_bit + 4);
+-		item.val[ISP_AFM_WIN_NUM_R6P9 * 3 * 3 + j + 2] = REG_RD(addr_high_bit + 8);
+-		item.val[ISP_AFM_WIN_NUM_R6P9 * 3 * 3 + j + 3] = REG_RD(addr_high_bit + 12);
+-		item.val[ISP_AFM_WIN_NUM_R6P9 * 3 * 3 + j + 4] = REG_RD(addr_high_bit + 16);
+-		j += 5;
+-		addr_high_bit += 20;
+-	}
+-
+-	ret = copy_to_user(param->property_param, (void*)&item, sizeof(item));
+-	if (0 != ret) {
+-		ret = -1;
+-		printk("isp_k_raw_afm_statistic_r6p9: error, ret = 0x%x\n", (uint32_t)ret);
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
++		int i = 0, j = 0;
++		int max_item = ISP_AFM_WIN_NUM_R6P9;
++		unsigned long addr_sobel5 = ISP_RGB_AFM_ROI_SOBEL5X5;
++		unsigned long addr_sobel9 = ISP_RGB_AFM_ROI_SOBEL9X9;
++		unsigned long addr_spsmd = ISP_RGB_AFM_ROI_SPSMD;
++		unsigned long addr_high_bit = ISP_RGB_AFM_HIGHT_BIT_ROI;
++		struct isp_raw_afm_statistic_r6p9 item;
++
++		memset(&item, 0, sizeof(struct isp_raw_afm_statistic_r6p9));
++		for (i = 0; i < max_item; i++) {
++			item.val[j] = REG_RD(addr_sobel5);
++			item.val[j + 1] = REG_RD(addr_sobel5 + 4);
++			item.val[j + 2] = REG_RD(addr_sobel5 + 8);
++
++			item.val[ISP_AFM_WIN_NUM_R6P9 * 3 + j] = REG_RD(addr_sobel9);
++			item.val[ISP_AFM_WIN_NUM_R6P9 * 3 + j + 1] = REG_RD(addr_sobel9 + 4);
++			item.val[ISP_AFM_WIN_NUM_R6P9 * 3 + j + 2] = REG_RD(addr_sobel9 + 8);
++
++			item.val[ISP_AFM_WIN_NUM_R6P9 * 3 * 2 + j] = REG_RD(addr_spsmd);
++			item.val[ISP_AFM_WIN_NUM_R6P9 * 3 * 2 + j + 1] = REG_RD(addr_spsmd + 4);
++			item.val[ISP_AFM_WIN_NUM_R6P9 * 3 * 2 + j + 2] = REG_RD(addr_spsmd + 8);
++
++			j += 3;
++			addr_sobel5 += 12;
++			addr_sobel9 += 12;
++			addr_spsmd += 12;
++		}
++
++		j = 0;
++		addr_high_bit = ISP_RGB_AFM_HIGHT_BIT_ROI;
++		for (i = 0; i < 3; i++) {
++			item.val[ISP_AFM_WIN_NUM_R6P9 * 3 * 3 + j] = REG_RD(addr_high_bit);
++			item.val[ISP_AFM_WIN_NUM_R6P9 * 3 * 3 + j + 1] = REG_RD(addr_high_bit + 4);
++			item.val[ISP_AFM_WIN_NUM_R6P9 * 3 * 3 + j + 2] = REG_RD(addr_high_bit + 8);
++			item.val[ISP_AFM_WIN_NUM_R6P9 * 3 * 3 + j + 3] = REG_RD(addr_high_bit + 12);
++			item.val[ISP_AFM_WIN_NUM_R6P9 * 3 * 3 + j + 4] = REG_RD(addr_high_bit + 16);
++			j += 5;
++			addr_high_bit += 20;
++		}
++
++		ret = copy_to_user(param->property_param, (void*)&item, sizeof(item));
++		if (0 != ret) {
++			ret = -1;
++			printk("isp_k_raw_afm_statistic_r6p9: error, ret = 0x%x\n", (uint32_t)ret);
++		}
+ 	}
+-#endif
+ 
+ 	return ret;
+ }
+@@ -380,22 +381,22 @@ static int32_t isp_k_raw_afm_spsmd_cal_mode(struct isp_io_param *param)
+ {
+ 	int32_t ret = 0;
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
+-
+-#else
+-	uint32_t cal_mode = 0;
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
+ 
+-	ret = copy_from_user((void *)&cal_mode, param->property_param, sizeof(cal_mode));
+-	if (0 != ret) {
+-		printk("isp_k_raw_afm_spsmd_cal_mode: error, ret = 0x%x\n", (uint32_t)ret);
+-		return -1;
+-	}
+-	if (cal_mode) {
+-		REG_OWR(ISP_RGB_AFM_PARAM, BIT_9);
+ 	} else {
+-		REG_MWR(ISP_RGB_AFM_PARAM, BIT_9, 0);
++		uint32_t cal_mode = 0;
++
++		ret = copy_from_user((void *)&cal_mode, param->property_param, sizeof(cal_mode));
++		if (0 != ret) {
++			printk("isp_k_raw_afm_spsmd_cal_mode: error, ret = 0x%x\n", (uint32_t)ret);
++			return -1;
++		}
++		if (cal_mode) {
++			REG_OWR(ISP_RGB_AFM_PARAM, BIT_9);
++		} else {
++			REG_MWR(ISP_RGB_AFM_PARAM, BIT_9, 0);
++		}
+ 	}
+-#endif
+ 
+ 	return ret;
+ }
+@@ -404,20 +405,20 @@ static int32_t isp_k_raw_afm_spsmd_square_en(struct isp_io_param *param)
+ {
+ 	int32_t ret = 0;
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
+-	uint32_t val = 0;
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
++		uint32_t val = 0;
+ 
+-	ret = copy_from_user((void *)&val, param->property_param, sizeof(val));
+-	if (0 != ret) {
+-		printk("isp_k_raw_afm_spsmd_square_en: error, ret = 0x%x\n", (uint32_t)ret);
+-		return -1;
++		ret = copy_from_user((void *)&val, param->property_param, sizeof(val));
++		if (0 != ret) {
++			printk("isp_k_raw_afm_spsmd_square_en: error, ret = 0x%x\n", (uint32_t)ret);
++			return -1;
++		}
++		if (val) {
++			REG_OWR(ISP_RGB_AFM_PARAM, BIT_9);
++		} else {
++			REG_MWR(ISP_RGB_AFM_PARAM, BIT_9, 0);
++		}
+ 	}
+-	if (val) {
+-		REG_OWR(ISP_RGB_AFM_PARAM, BIT_9);
+-	} else {
+-		REG_MWR(ISP_RGB_AFM_PARAM, BIT_9, 0);
+-	}
+-#endif
+ 
+ 	return ret;
+ }
+@@ -426,22 +427,22 @@ static int32_t isp_k_raw_afm_sel_filter1(struct isp_io_param *param)
+ {
+ 	int32_t ret = 0;
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
+-
+-#else
+-	uint32_t af_sel_filter = 0;
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
+ 
+-	ret = copy_from_user((void *)&af_sel_filter, param->property_param, sizeof(af_sel_filter));
+-	if (0 != ret) {
+-		printk("isp_k_raw_afm_sel_filter1: error, ret = 0x%x\n", (uint32_t)ret);
+-		return -1;
+-	}
+-	if (af_sel_filter) {
+-		REG_OWR(ISP_RGB_AFM_PARAM, BIT_10);
+ 	} else {
+-		REG_MWR(ISP_RGB_AFM_PARAM, BIT_10, 0);
++		uint32_t af_sel_filter = 0;
++
++		ret = copy_from_user((void *)&af_sel_filter, param->property_param, sizeof(af_sel_filter));
++		if (0 != ret) {
++			printk("isp_k_raw_afm_sel_filter1: error, ret = 0x%x\n", (uint32_t)ret);
++			return -1;
++		}
++		if (af_sel_filter) {
++			REG_OWR(ISP_RGB_AFM_PARAM, BIT_10);
++		} else {
++			REG_MWR(ISP_RGB_AFM_PARAM, BIT_10, 0);
++		}
+ 	}
+-#endif
+ 
+ 	return ret;
+ }
+@@ -450,22 +451,22 @@ static int32_t isp_k_raw_afm_sel_filter2(struct isp_io_param *param)
+ {
+ 	int32_t ret = 0;
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
+-
+-#else
+-	uint32_t af_sel_filter = 0;
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
+ 
+-	ret = copy_from_user((void *)&af_sel_filter, param->property_param, sizeof(af_sel_filter));
+-	if (0 != ret) {
+-		printk("isp_k_raw_afm_sel_filter2: error, ret = 0x%x\n", (uint32_t)ret);
+-		return -1;
+-	}
+-	if (af_sel_filter) {
+-		REG_OWR(ISP_RGB_AFM_PARAM, BIT_11);
+ 	} else {
+-		REG_MWR(ISP_RGB_AFM_PARAM, BIT_11, 0);
++		uint32_t af_sel_filter = 0;
++
++		ret = copy_from_user((void *)&af_sel_filter, param->property_param, sizeof(af_sel_filter));
++		if (0 != ret) {
++			printk("isp_k_raw_afm_sel_filter2: error, ret = 0x%x\n", (uint32_t)ret);
++			return -1;
++		}
++		if (af_sel_filter) {
++			REG_OWR(ISP_RGB_AFM_PARAM, BIT_11);
++		} else {
++			REG_MWR(ISP_RGB_AFM_PARAM, BIT_11, 0);
++		}
+ 	}
+-#endif
+ 
+ 	return ret;
+ }
+@@ -474,23 +475,23 @@ static int32_t isp_k_raw_afm_sobel_type(struct isp_io_param *param)
+ {
+ 	int32_t ret = 0;
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
+ 
+-#else
+-	uint32_t sobel_type = 0;
++	} else {
++		uint32_t sobel_type = 0;
+ 
+-	ret = copy_from_user((void *)&sobel_type, param->property_param, sizeof(sobel_type));
+-	if (0 != ret) {
+-		printk("isp_k_raw_afm_sobel_type: error, ret = 0x%x\n", (uint32_t)ret);
+-		return -1;
+-	}
++		ret = copy_from_user((void *)&sobel_type, param->property_param, sizeof(sobel_type));
++		if (0 != ret) {
++			printk("isp_k_raw_afm_sobel_type: error, ret = 0x%x\n", (uint32_t)ret);
++			return -1;
++		}
+ 
+-	if (sobel_type) {
+-		REG_OWR(ISP_RGB_AFM_PARAM, BIT_12);
+-	} else {
+-		REG_MWR(ISP_RGB_AFM_PARAM, BIT_12, 0);
++		if (sobel_type) {
++			REG_OWR(ISP_RGB_AFM_PARAM, BIT_12);
++		} else {
++			REG_MWR(ISP_RGB_AFM_PARAM, BIT_12, 0);
++		}
+ 	}
+-#endif
+ 
+ 	return ret;
+ }
+@@ -499,21 +500,21 @@ static int32_t isp_k_raw_afm_overflow_protect(struct isp_io_param *param)
+ {
+ 	int32_t ret = 0;
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
+-	uint32_t val = 0;
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
++		uint32_t val = 0;
+ 
+-	ret = copy_from_user((void *)&val, param->property_param, sizeof(val));
+-	if (0 != ret) {
+-		printk("isp_k_raw_afm_overflow_protect: error, ret = 0x%x\n", (uint32_t)ret);
+-		return -1;
+-	}
++		ret = copy_from_user((void *)&val, param->property_param, sizeof(val));
++		if (0 != ret) {
++			printk("isp_k_raw_afm_overflow_protect: error, ret = 0x%x\n", (uint32_t)ret);
++			return -1;
++		}
+ 
+-	if (val) {
+-		REG_OWR(ISP_RGB_AFM_PARAM, BIT_12);
+-	} else {
+-		REG_MWR(ISP_RGB_AFM_PARAM, BIT_12, 0);
++		if (val) {
++			REG_OWR(ISP_RGB_AFM_PARAM, BIT_12);
++		} else {
++			REG_MWR(ISP_RGB_AFM_PARAM, BIT_12, 0);
++		}
+ 	}
+-#endif
+ 
+ 	return ret;
+ }
+@@ -522,20 +523,20 @@ static int32_t isp_k_raw_afm_spsmd_type(struct isp_io_param *param)
+ {
+ 	int32_t ret = 0;
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
++
++	} else {
++		uint32_t spsmd_type = 0;
+ 
+-#else
+-	uint32_t spsmd_type = 0;
++		ret = copy_from_user((void *)&spsmd_type, param->property_param, sizeof(spsmd_type));
++		if (0 != ret) {
++			printk("isp_k_raw_afm_spsmd_type: error, ret = 0x%x\n", (uint32_t)ret);
++			return -1;
++		}
+ 
+-	ret = copy_from_user((void *)&spsmd_type, param->property_param, sizeof(spsmd_type));
+-	if (0 != ret) {
+-		printk("isp_k_raw_afm_spsmd_type: error, ret = 0x%x\n", (uint32_t)ret);
+-		return -1;
++		REG_MWR(ISP_RGB_AFM_PARAM, (BIT_13)|(BIT_14), spsmd_type<<13);
+ 	}
+ 
+-	REG_MWR(ISP_RGB_AFM_PARAM, (BIT_13)|(BIT_14), spsmd_type<<13);
+-#endif
+-
+ 	return ret;
+ }
+ 
+@@ -543,27 +544,27 @@ static int32_t isp_k_raw_afm_subfilter(struct isp_io_param *param)
+ {
+ 	int32_t ret = 0;
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
+-	struct afm_subfilter subfilter;
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
++		struct afm_subfilter subfilter;
+ 
+-	ret = copy_from_user((void *)&subfilter, param->property_param, sizeof(subfilter));
+-	if (0 != ret) {
+-		printk("isp_k_raw_afm_subfilter: error, ret = 0x%x\n", (uint32_t)ret);
+-		return -1;
+-	}
++		ret = copy_from_user((void *)&subfilter, param->property_param, sizeof(subfilter));
++		if (0 != ret) {
++			printk("isp_k_raw_afm_subfilter: error, ret = 0x%x\n", (uint32_t)ret);
++			return -1;
++		}
+ 
+-	if (subfilter.average) {
+-		REG_OWR(ISP_RGB_AFM_PARAM, BIT_13);
+-	} else {
+-		REG_MWR(ISP_RGB_AFM_PARAM, BIT_13, 0);
+-	}
++		if (subfilter.average) {
++			REG_OWR(ISP_RGB_AFM_PARAM, BIT_13);
++		} else {
++			REG_MWR(ISP_RGB_AFM_PARAM, BIT_13, 0);
++		}
+ 
+-	if (subfilter.median) {
+-		REG_OWR(ISP_RGB_AFM_PARAM, BIT_14);
+-	} else {
+-		REG_MWR(ISP_RGB_AFM_PARAM, BIT_14, 0);
++		if (subfilter.median) {
++			REG_OWR(ISP_RGB_AFM_PARAM, BIT_14);
++		} else {
++			REG_MWR(ISP_RGB_AFM_PARAM, BIT_14, 0);
++		}
+ 	}
+-#endif
+ 
+ 	return ret;
+ }
+@@ -572,21 +573,21 @@ static int32_t isp_k_raw_afm_spsmd_touch_mode(struct isp_io_param *param)
+ {
+ 	int32_t ret = 0;
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
+-	uint32_t val = 0;
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
++		uint32_t val = 0;
+ 
+-	ret = copy_from_user((void *)&val, param->property_param, sizeof(val));
+-	if (0 != ret) {
+-		printk("isp_k_raw_afm_spsmd_touch_mode: error, ret = 0x%x\n", (uint32_t)ret);
+-		return -1;
+-	}
++		ret = copy_from_user((void *)&val, param->property_param, sizeof(val));
++		if (0 != ret) {
++			printk("isp_k_raw_afm_spsmd_touch_mode: error, ret = 0x%x\n", (uint32_t)ret);
++			return -1;
++		}
+ 
+-	if (val) {
+-		REG_OWR(ISP_RGB_AFM_PARAM, BIT_15);
+-	} else {
+-		REG_MWR(ISP_RGB_AFM_PARAM, BIT_15, 0);
++		if (val) {
++			REG_OWR(ISP_RGB_AFM_PARAM, BIT_15);
++		} else {
++			REG_MWR(ISP_RGB_AFM_PARAM, BIT_15, 0);
++		}
+ 	}
+-#endif
+ 
+ 	return ret;
+ }
+@@ -595,19 +596,19 @@ static int32_t isp_k_raw_afm_shift(struct isp_io_param *param)
+ {
+ 	int32_t ret = 0;
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
+-	struct afm_shift shift;
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
++		struct afm_shift shift;
+ 
+-	ret = copy_from_user((void *)&shift, param->property_param, sizeof(shift));
+-	if (0 != ret) {
+-		printk("isp_k_raw_afm_shift: error, ret = 0x%x\n", (uint32_t)ret);
+-		return -1;
+-	}
++		ret = copy_from_user((void *)&shift, param->property_param, sizeof(shift));
++		if (0 != ret) {
++			printk("isp_k_raw_afm_shift: error, ret = 0x%x\n", (uint32_t)ret);
++			return -1;
++		}
+ 
+-	REG_MWR(ISP_RGB_AFM_PARAM, (BIT_18 | BIT_17 | BIT_16), shift.shift_spsmd << 16);
+-	REG_MWR(ISP_RGB_AFM_PARAM, (BIT_21 | BIT_20 | BIT_19), shift.shift_sobel9 << 19);
+-	REG_MWR(ISP_RGB_AFM_PARAM, (BIT_27 | BIT_26 | BIT_25), shift.shift_sobel5 << 25);
+-#endif
++		REG_MWR(ISP_RGB_AFM_PARAM, (BIT_18 | BIT_17 | BIT_16), shift.shift_spsmd << 16);
++		REG_MWR(ISP_RGB_AFM_PARAM, (BIT_21 | BIT_20 | BIT_19), shift.shift_sobel9 << 19);
++		REG_MWR(ISP_RGB_AFM_PARAM, (BIT_27 | BIT_26 | BIT_25), shift.shift_sobel5 << 25);
++	}
+ 
+ 	return ret;
+ }
+@@ -616,21 +617,21 @@ static int32_t isp_k_raw_afm_sobel_threshold(struct isp_io_param *param)
+ {
+ 	int32_t ret = 0;
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
+ 
+-#else
+-	uint32_t val = 0;
+-	struct sobel_thrd sobel_threshold = {0, 0};
++	} else {
++		uint32_t val = 0;
++		struct sobel_thrd sobel_threshold = {0, 0};
+ 
+-	ret = copy_from_user((void *)&sobel_threshold, param->property_param, sizeof(sobel_threshold));
+-	if (0 != ret) {
+-		printk("isp_k_raw_afm_sobel_threshold: error, ret = 0x%x\n", (uint32_t)ret);
+-		return -1;
++		ret = copy_from_user((void *)&sobel_threshold, param->property_param, sizeof(sobel_threshold));
++		if (0 != ret) {
++			printk("isp_k_raw_afm_sobel_threshold: error, ret = 0x%x\n", (uint32_t)ret);
++			return -1;
++		}
++		val = ((sobel_threshold.max<<16) & 0xffff0000)
++				| (sobel_threshold.min & 0xffff);
++		REG_WR(ISP_RGB_AFM_SOBEL_THRESHOLD, val);
+ 	}
+-	val = ((sobel_threshold.max<<16) & 0xffff0000)
+-			| (sobel_threshold.min & 0xffff);
+-	REG_WR(ISP_RGB_AFM_SOBEL_THRESHOLD, val);
+-#endif
+ 
+ 	return ret;
+ }
+@@ -639,19 +640,19 @@ static int32_t isp_k_raw_afm_spsmd_threshold(struct isp_io_param *param)
+ {
+ 	int32_t ret = 0;
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
+ 
+-#else
+-	struct spsmd_thrd spsmd_threshold = {0, 0};
++	} else {
++		struct spsmd_thrd spsmd_threshold = {0, 0};
+ 
+-	ret = copy_from_user((void *)&spsmd_threshold, param->property_param, sizeof(spsmd_threshold));
+-	if (0 != ret) {
+-		printk("isp_k_raw_afm_spsmd_threshold: error, ret = 0x%x\n", (uint32_t)ret);
+-		return -1;
++		ret = copy_from_user((void *)&spsmd_threshold, param->property_param, sizeof(spsmd_threshold));
++		if (0 != ret) {
++			printk("isp_k_raw_afm_spsmd_threshold: error, ret = 0x%x\n", (uint32_t)ret);
++			return -1;
++		}
++		REG_WR(ISP_RGB_AFM_SPSMD_THRESHOLD_MIN, spsmd_threshold.min);
++		REG_WR(ISP_RGB_AFM_SPSMD_THRESHOLD_MAX, spsmd_threshold.max);
+ 	}
+-	REG_WR(ISP_RGB_AFM_SPSMD_THRESHOLD_MIN, spsmd_threshold.min);
+-	REG_WR(ISP_RGB_AFM_SPSMD_THRESHOLD_MAX, spsmd_threshold.max);
+-#endif
+ 
+ 	return ret;
+ }
+@@ -660,52 +661,52 @@ static int32_t isp_k_raw_afm_threshold_rgb(struct isp_io_param *param)
+ {
+ 	int32_t ret = 0;
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
+-	uint32_t val = 0;
+-	struct afm_thrd_rgb thrd_rgb;
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
++		uint32_t val = 0;
++		struct afm_thrd_rgb thrd_rgb;
+ 
+-	ret = copy_from_user((void *)&thrd_rgb, param->property_param, sizeof(thrd_rgb));
+-	if (0 != ret) {
+-		printk("isp_k_raw_afm_threshold_rgb: error, ret = 0x%x\n", (uint32_t)ret);
+-		return -1;
+-	}
++		ret = copy_from_user((void *)&thrd_rgb, param->property_param, sizeof(thrd_rgb));
++		if (0 != ret) {
++			printk("isp_k_raw_afm_threshold_rgb: error, ret = 0x%x\n", (uint32_t)ret);
++			return -1;
++		}
+ 
+-	val = ((thrd_rgb.sobel5_thr_max_red << 16) & 0x3FFF0000)
+-			| (thrd_rgb.sobel5_thr_min_red & 0x0FFF);
+-	REG_WR(ISP_RGB_AFM_SOBEL5_THR_RED, val);
++		val = ((thrd_rgb.sobel5_thr_max_red << 16) & 0x3FFF0000)
++				| (thrd_rgb.sobel5_thr_min_red & 0x0FFF);
++		REG_WR(ISP_RGB_AFM_SOBEL5_THR_RED, val);
+ 
+-	val = ((thrd_rgb.sobel5_thr_max_green << 16) & 0x3FFF0000)
+-			| (thrd_rgb.sobel5_thr_min_green & 0x0FFF);
+-	REG_WR(ISP_RGB_AFM_SOBEL5_THR_GREEN, val);
++		val = ((thrd_rgb.sobel5_thr_max_green << 16) & 0x3FFF0000)
++				| (thrd_rgb.sobel5_thr_min_green & 0x0FFF);
++		REG_WR(ISP_RGB_AFM_SOBEL5_THR_GREEN, val);
+ 
+-	val = ((thrd_rgb.sobel5_thr_max_blue << 16) & 0x3FFF0000)
+-			| (thrd_rgb.sobel5_thr_min_blue & 0x0FFF);
+-	REG_WR(ISP_RGB_AFM_SOBEL5_THR_BLUE, val);
++		val = ((thrd_rgb.sobel5_thr_max_blue << 16) & 0x3FFF0000)
++				| (thrd_rgb.sobel5_thr_min_blue & 0x0FFF);
++		REG_WR(ISP_RGB_AFM_SOBEL5_THR_BLUE, val);
+ 
+-	val = ((thrd_rgb.sobel9_thr_max_red << 16) & 0x3FFF0000)
+-			| (thrd_rgb.sobel9_thr_min_red & 0x0FFF);
+-	REG_WR(ISP_RGB_AFM_SOBEL9_THR_RED, val);
++		val = ((thrd_rgb.sobel9_thr_max_red << 16) & 0x3FFF0000)
++				| (thrd_rgb.sobel9_thr_min_red & 0x0FFF);
++		REG_WR(ISP_RGB_AFM_SOBEL9_THR_RED, val);
+ 
+-	val = ((thrd_rgb.sobel9_thr_max_green << 16) & 0x3FFF0000)
+-			| (thrd_rgb.sobel9_thr_min_green & 0x0FFF);
+-	REG_WR(ISP_RGB_AFM_SOBEL9_THR_GREEN, val);
++		val = ((thrd_rgb.sobel9_thr_max_green << 16) & 0x3FFF0000)
++				| (thrd_rgb.sobel9_thr_min_green & 0x0FFF);
++		REG_WR(ISP_RGB_AFM_SOBEL9_THR_GREEN, val);
+ 
+-	val = ((thrd_rgb.sobel9_thr_max_blue << 16) & 0x3FFF0000)
+-			| (thrd_rgb.sobel9_thr_min_blue & 0x0FFF);
+-	REG_WR(ISP_RGB_AFM_SOBEL9_THR_BLUE, val);
++		val = ((thrd_rgb.sobel9_thr_max_blue << 16) & 0x3FFF0000)
++				| (thrd_rgb.sobel9_thr_min_blue & 0x0FFF);
++		REG_WR(ISP_RGB_AFM_SOBEL9_THR_BLUE, val);
+ 
+-	val = ((thrd_rgb.spsmd_thr_max_red << 12) & 0x7FFFF000)
+-			| (thrd_rgb.spsmd_thr_min_red & 0x0FFF);
+-	REG_WR(ISP_RGB_AFM_SPSMD_THR_RED, val);
++		val = ((thrd_rgb.spsmd_thr_max_red << 12) & 0x7FFFF000)
++				| (thrd_rgb.spsmd_thr_min_red & 0x0FFF);
++		REG_WR(ISP_RGB_AFM_SPSMD_THR_RED, val);
+ 
+-	val = ((thrd_rgb.spsmd_thr_max_green << 12) & 0x7FFFF000)
+-			| (thrd_rgb.spsmd_thr_min_green & 0x0FFF);
+-	REG_WR(ISP_RGB_AFM_SPSMD_THR_GREEN, val);
++		val = ((thrd_rgb.spsmd_thr_max_green << 12) & 0x7FFFF000)
++				| (thrd_rgb.spsmd_thr_min_green & 0x0FFF);
++		REG_WR(ISP_RGB_AFM_SPSMD_THR_GREEN, val);
+ 
+-	val = ((thrd_rgb.spsmd_thr_max_blue << 12) & 0x7FFFF000)
+-			| (thrd_rgb.spsmd_thr_min_blue & 0x0FFF);
+-	REG_WR(ISP_RGB_AFM_SPSMD_THR_BLUE, val);
+-#endif
++		val = ((thrd_rgb.spsmd_thr_max_blue << 12) & 0x7FFFF000)
++				| (thrd_rgb.spsmd_thr_min_blue & 0x0FFF);
++		REG_WR(ISP_RGB_AFM_SPSMD_THR_BLUE, val);
++	}
+ 
+ 	return ret;
+ }
+@@ -726,13 +727,13 @@ static int32_t isp_k_raw_afm_win(struct isp_io_param *param)
+ 		return -1;
+ 	}
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
+-	max_num = ISP_AFM_WIN_NUM_R6P9;
+-	addr = ISP_RGB_AFM_WINDOW_RANGE;
+-#else
+-	max_num = ISP_AFM_WIN_NUM_V1;
+-	addr = ISP_RGB_AFM_WIN_RANGE0;
+-#endif
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
++		max_num = ISP_AFM_WIN_NUM_R6P9;
++		addr = ISP_RGB_AFM_WINDOW_RANGE;
++	} else {
++		max_num = ISP_AFM_WIN_NUM_V1;
++		addr = ISP_RGB_AFM_WIN_RANGE0;
++	}
+ 
+ 	for (i = 0; i < max_num; i++) {
+ 		val = ((coord[i].start_y << 16) & 0xFFFF0000)
+@@ -752,11 +753,11 @@ static int32_t isp_k_raw_afm_win_num(struct isp_io_param *param)
+ 	int32_t ret = 0;
+ 	uint32_t num = 0;
+ 
+-#if defined(CONFIG_ARCH_SCX30G3)
+-	num = ISP_AFM_WIN_NUM_R6P9;
+-#else
+-	num = ISP_AFM_WIN_NUM_V1;
+-#endif
++	if (soc_is_scx9832a_v0() || soc_is_scx30g3_v0()) {
++		num = ISP_AFM_WIN_NUM_R6P9;
++	} else {
++		num = ISP_AFM_WIN_NUM_V1;
++	}
+ 
+ 	ret = copy_to_user(param->property_param, (void*)&num, sizeof(num));
+ 	if (0 != ret) {
+diff --git a/drivers/media/sprd_isp/isp_drv.c b/drivers/media/sprd_isp/isp_drv.c
+index 6f468307..d37affc5 100755
+--- a/drivers/media/sprd_isp/isp_drv.c
++++ b/drivers/media/sprd_isp/isp_drv.c
+@@ -38,6 +38,7 @@
+ #include "compat_isp_drv.h"
+ #include "isp_drv.h"
+ #include "isp_reg.h"
++//#include <video/sprd_cam_pw_domain.h>
+ 
+ #define ISP_MINOR MISC_DYNAMIC_MINOR
+ 
+@@ -50,7 +51,7 @@ static int32_t isp_block_buf_alloc(struct isp_k_private *isp_private)
+ 	int32_t ret = 0;
+ 	uint32_t buf_len = 0;
+ 
+-	buf_len = ISP_REG_BUF_SIZE + ISP_RAW_AE_BUF_SIZE + ISP_FRGB_GAMMA_BUF_SIZE + ISP_YUV_YGAMMA_BUF_SIZE + ISP_RAW_AWB_BUF_SIZE + ISP_YIQ_AEM_BUF_SIZE;
++	buf_len = ISP_REG_BUF_SIZE + ISP_FRGB_GAMMA_BUF_SIZE + ISP_YUV_YGAMMA_BUF_SIZE + ISP_RAW_AWB_BUF_SIZE + ISP_YIQ_AEM_BUF_SIZE;
+ 
+ 	isp_private->block_buf_addr = (unsigned long)vzalloc(buf_len);
+ 	if (0 == isp_private->block_buf_addr) {
+@@ -60,9 +61,7 @@ static int32_t isp_block_buf_alloc(struct isp_k_private *isp_private)
+ 		isp_private->block_buf_len = buf_len;
+ 		isp_private->reg_buf_addr = isp_private->block_buf_addr;
+ 		isp_private->reg_buf_len = ISP_REG_BUF_SIZE;
+-		isp_private->raw_aem_buf_addr = isp_private->reg_buf_addr + isp_private->reg_buf_len;
+-		isp_private->raw_aem_buf_len = ISP_RAW_AE_BUF_SIZE;
+-		isp_private->full_gamma_buf_addr = isp_private->raw_aem_buf_addr + isp_private->raw_aem_buf_len;
++		isp_private->full_gamma_buf_addr = isp_private->reg_buf_addr + isp_private->reg_buf_len;
+ 		isp_private->full_gamma_buf_len = ISP_FRGB_GAMMA_BUF_SIZE;
+ 		isp_private->yuv_ygamma_buf_addr = isp_private->full_gamma_buf_addr + isp_private->full_gamma_buf_len;
+ 		isp_private->yuv_ygamma_buf_len = ISP_YUV_YGAMMA_BUF_SIZE;
+@@ -86,8 +85,6 @@ static int32_t isp_block_buf_free(struct isp_k_private *isp_private)
+ 		isp_private->block_buf_len = 0x00;
+ 		isp_private->reg_buf_addr = 0x00;
+ 		isp_private->reg_buf_len = 0x00;
+-		isp_private->raw_aem_buf_addr = 0x00;
+-		isp_private->raw_aem_buf_len = 0x00;
+ 		isp_private->full_gamma_buf_addr = 0x00;
+ 		isp_private->full_gamma_buf_len = 0x00;
+ 		isp_private->yuv_ygamma_buf_addr = 0x00;
+@@ -99,80 +96,6 @@ static int32_t isp_block_buf_free(struct isp_k_private *isp_private)
+ 	return ret;
+ }
+ 
+-static int32_t isp_yiq_antiflicker_buf_free(struct isp_k_private *isp_private)
+-{
+-	int32_t ret = 0;
+-
+-	if ((0x00 != isp_private->yiq_antiflicker_buf_addr)
+-		&& (0x00 != isp_private->yiq_antiflicker_order)) {
+-		free_pages(isp_private->yiq_antiflicker_buf_addr, isp_private->yiq_antiflicker_order);
+-		isp_private->yiq_antiflicker_buf_addr = 0x00;
+-		isp_private->yiq_antiflicker_len = 0x00;
+-		isp_private->yiq_antiflicker_order = 0x00;
+-	}
+-
+-	return ret;
+-
+-}
+-
+-static int32_t isp_yiq_antiflicker_buf_alloc(struct isp_k_private *isp_private, uint32_t len)
+-{
+-		int32_t ret = 0x00;
+-#ifndef CONFIG_64BIT
+-		uint32_t buf = 0x00;
+-		void *ptr = NULL;
+-#endif
+-
+-		if (0x00 < len) {
+-			isp_private->yiq_antiflicker_len = len;
+-			isp_private->yiq_antiflicker_order = get_order(len);
+-			isp_private->yiq_antiflicker_buf_addr = (unsigned long)__get_free_pages(GFP_KERNEL | __GFP_COMP, isp_private->yiq_antiflicker_order);
+-			if (NULL == (void*)isp_private->yiq_antiflicker_buf_addr) {
+-				printk("isp_yiq_antiflicker_buf_alloc: memory error, addr:0x%lx, len:0x%x, order:0x%x.\n",
+-					isp_private->yiq_antiflicker_buf_addr,
+-					isp_private->yiq_antiflicker_len,
+-					isp_private->yiq_antiflicker_order);
+-				return -1;
+-			}
+-#ifndef CONFIG_64BIT
+-			ptr = (void*)isp_private->yiq_antiflicker_buf_addr;
+-			buf = virt_to_phys((volatile void *)isp_private->yiq_antiflicker_buf_addr);
+-
+-			dmac_flush_range(ptr, ptr + len);
+-			outer_flush_range(__pa(ptr), __pa(ptr) + len);
+-#endif
+-		}
+-
+-		return ret;
+-
+-}
+-
+-#if 0
+-static int32_t isp_b4awb_switch_buf(struct isp_k_private *isp_private)
+-{
+-	int32_t ret = 0;
+-
+-	/*first bypass b4awb*/
+-	REG_MWR(ISP_BINNING_PARAM, BIT_0, 0x1);
+-
+-	/*switch buf*/
+-	if (isp_private->b4awb_buf[0].buf_flag == 1) {
+-		isp_private->b4awb_buf[1].buf_flag = 1;
+-		REG_WR(ISP_BINNING_MEM_ADDR, isp_private->b4awb_buf[1].buf_phys_addr);
+-		isp_private->b4awb_buf[0].buf_flag = 0;
+-	} else if (isp_private->b4awb_buf[1].buf_flag == 1) {
+-		isp_private->b4awb_buf[0].buf_flag = 1;
+-		REG_WR(ISP_BINNING_MEM_ADDR, isp_private->b4awb_buf[0].buf_phys_addr);
+-		isp_private->b4awb_buf[1].buf_flag = 0;
+-	}
+-
+-	/*enable b4awb*/
+-	REG_MWR(ISP_BINNING_PARAM, BIT_0, 0x0);
+-
+-	return ret;
+-}
+-#endif
+-
+ static void isp_read_reg(struct isp_reg_bits *reg_bits_ptr, uint32_t counts)
+ {
+ 	uint32_t i = 0;
+@@ -180,16 +103,9 @@ static void isp_read_reg(struct isp_reg_bits *reg_bits_ptr, uint32_t counts)
+ 
+ 	for (i = 0; i < counts; i++) {
+ 		reg_addr = ISP_BASE_ADDR + reg_bits_ptr[i].reg_addr;
+-		if((reg_addr >= ISP_BASE_ADDR) && (reg_addr <= (ISP_BASE_ADDR + 0xFFFFFUL)))
+-		{
+-			reg_val = REG_RD(reg_addr);
+-			reg_bits_ptr[i].reg_value = reg_val;
+-			reg_bits_ptr[i].reg_addr = isp_phybase + reg_bits_ptr[i].reg_addr;
+-		} 
+-		else
+-		{
+-			 printk("isp_read_reg: This is not ISP reg address %d\n",reg_addr); 	   
+-		}
++		reg_val = REG_RD(reg_addr);
++		reg_bits_ptr[i].reg_value = reg_val;
++		reg_bits_ptr[i].reg_addr = reg_addr;
+ 	}
+ }
+ 
+@@ -201,14 +117,7 @@ static void isp_write_reg(struct isp_reg_bits *reg_bits_ptr, uint32_t counts)
+ 	for (i = 0; i < counts; i++) {
+ 		reg_addr = reg_bits_ptr[i].reg_addr + ISP_BASE_ADDR;
+ 		reg_val = reg_bits_ptr[i].reg_value;
+-		if((reg_addr >= ISP_BASE_ADDR) && (reg_addr <= (ISP_BASE_ADDR + 0xFFFFFUL)))
+-		{
+-			REG_WR(reg_addr, reg_val);
+-		}
+-		else
+-		{
+-			printk("isp_write_reg: This is not ISP reg address %d\n",reg_addr);        
+-		}
++		REG_WR(reg_addr, reg_val);
+ 	}
+ }
+ 
+@@ -289,6 +198,9 @@ static int32_t isp_set_clk(struct isp_k_file *file, enum isp_clk_sel clk_sel)
+ 	case ISP_CLK_480M:
+ 		parent = "clk_usbpll";
+ 		break;
++	case ISP_CLK_468M:
++		parent = "clk_468m";
++		break;
+ 	case ISP_CLK_384M:
+ 		parent = "clk_384m";
+ 		break;
+@@ -310,6 +222,10 @@ static int32_t isp_set_clk(struct isp_k_file *file, enum isp_clk_sel clk_sel)
+ 	case ISP_CLK_NONE:
+ 		printk("isp_set_clk: close clock %d\n", (int)clk_get_rate(isp_private->clock));
+ 		if (isp_private->clock) {
++#if defined(CONFIG_ARCH_WHALE)
++			printk("ISP change clk before disable \n");
++			clk_set_parent(isp_private->clock, parse_clk(isp_private->dn, "clk_76p8m"));
++#endif
+ 			clk_disable(isp_private->clock);
+ 			clk_put(isp_private->clock);
+ 			isp_private->clock = NULL;
+@@ -329,8 +245,11 @@ static int32_t isp_set_clk(struct isp_k_file *file, enum isp_clk_sel clk_sel)
+ 	} else {
+ 		clk_disable(isp_private->clock);
+ 	}
+-
++#if defined(CONFIG_ARCH_WHALE)
++	clk_parent = parse_clk(isp_private->dn, parent);
++#else
+ 	clk_parent = clk_get(NULL, parent);
++#endif
+ 	if (IS_ERR(clk_parent)) {
+ 		printk("isp_set_clk: clk_get error %d\n", (int)clk_parent);
+ 		return -1;
+@@ -403,16 +322,19 @@ static int32_t isp_module_eb(struct isp_k_file *file)
+ 
+ 	if (0x01 == atomic_inc_return(&isp_private->users)) {
+ 
++		//ret = cam_pw_on(CAM_PW_DOMAIN_ISP);
+ 		ret = clk_mm_i_eb(isp_private->dn, 1);
+ 		if (unlikely(0 != ret)) {
+ 			ret = -1;
+ 			printk("isp_module_eb: clk_mm_i_eb error.\n");
+ 		}
+ 
+-	#if defined(CONFIG_MACH_SP7731CEA) || defined(CONFIG_MACH_SP7731CEB) || defined(CONFIG_MACH_PIKEB_J1MINI_3G) || defined(CONFIG_MACH_PIKEB_J1_3G) || defined(CONFIG_MACH_PIKEB_JIGBASE)|| defined(CONFIG_MACH_SP7727SEEB_PRIME) || defined(CONFIG_MACH_PIKEB_Z1MINI) 
++	#if defined(CONFIG_ARCH_SCX20)
+ 		ret = isp_set_clk(file, ISP_CLK_256M);
+ 	#elif defined(CONFIG_ARCH_SCX35LT8)
+ 		ret = isp_set_clk(file, ISP_CLK_480M);
++	#elif defined(CONFIG_ARCH_WHALE)
++		ret = isp_set_clk(file, ISP_CLK_468M);
+ 	#else
+ 		ret = isp_set_clk(file, ISP_CLK_312M);
+ 	#endif
+@@ -450,6 +372,7 @@ static int32_t isp_module_dis(struct isp_k_file *file)
+ 		}
+ 
+ 		ret = clk_mm_i_eb(isp_private->dn, 0);
++		//ret = cam_pw_off(CAM_PW_DOMAIN_ISP);
+ 		if (unlikely(0 != ret)) {
+ 			ret = -1;
+ 			printk("isp_module_dis: close clk_mm_i error.\n");
+@@ -485,10 +408,7 @@ static irqreturn_t isp_isr(int irq, void *dev_id)
+ 	memset(&node, 0x00, sizeof(node));
+ 	ret = isp_get_int_num(&node);
+ 
+-	/*B4AWB INT*/
+-	/*if (node.irq_val1 & BIT_18) {
+-		isp_b4awb_switch_buf(fd->isp_private);
+-	}*/
++	ret = isp_k_switch_bq_buf(fd->isp_private, (struct isp_node *)&node);
+ 
+ 	ktime_get_ts(&ts);
+ 	node.time.sec = ts.tv_sec;
+@@ -508,15 +428,27 @@ static irqreturn_t isp_isr(int irq, void *dev_id)
+ static int32_t isp_register_irq(struct isp_k_file *file)
+ {
+ 	int32_t ret = 0;
++	int    irq;
+ 
++#if defined(CONFIG_ARCH_WHALE)
++	irq = isp_parseinfo[get_module_selectindex(MODULE_ISP)].irq;
++	ret = request_irq(irq, isp_isr, IRQF_SHARED, "ISP", (void *)file);
++#else
+ 	ret = request_irq(ISP_IRQ, isp_isr, IRQF_SHARED, "ISP", (void *)file);
+-
++#endif
+ 	return ret;
+ }
+ 
+ static void isp_unregister_irq(struct isp_k_file *file)
+ {
++		int    irq;
++
++#if defined(CONFIG_ARCH_WHALE)
++	irq = isp_parseinfo[get_module_selectindex(MODULE_ISP)].irq;
++	free_irq (irq, (void *)file);
++#else
+ 	free_irq (ISP_IRQ, (void *)file);
++#endif
+ }
+ 
+ static int isp_open (struct inode *node, struct file *file)
+@@ -560,6 +492,13 @@ static int isp_open (struct inode *node, struct file *file)
+ 		return ret;
+ 	}
+ 
++	ret = isp_k_create_bq_thread(isp_private);
++	if (unlikely(ret != 0)) {
++		printk("isp_open: isp_k_create_bq_thread error.\n");
++		ret = -EIO;
++		goto open_exit;
++	}
++
+ 	ret = isp_module_eb(fd);
+ 	if (unlikely(0 != ret)) {
+ 		ret = -EIO;
+@@ -631,6 +570,8 @@ static int isp_release (struct inode *node, struct file *file)
+ 
+ 	ret = isp_module_dis(fd);
+ 
++	isp_k_stop_bq_thread(isp_private);
++
+ 	up(&isp_private->ioctl_lock);
+ 
+ fd_free:
+@@ -694,6 +635,7 @@ static long isp_ioctl( struct file *file, unsigned int cmd, unsigned long param)
+ 			ret = -ERESTARTSYS;
+ 			return ret;
+ 		}
++
+ 		memset(&node, 0, sizeof(node));
+ 		ret = isp_queue_read(&drv_private->queue, &node);
+ 		if (0 != ret) {
+@@ -816,9 +758,9 @@ static long isp_ioctl( struct file *file, unsigned int cmd, unsigned long param)
+ 			printk("isp_ioctl: restet error.\n");
+ 		}
+ 
+-		isp_private->is_vst_ivst_update = 1;
+ 		isp_private->full_gamma_buf_id = 0;
+ 		isp_private->yuv_ygamma_buf_id = 0;
++		isp_private->is_vst_ivst_update = 1;
+ 
+ 		up(&isp_private->ioctl_lock);
+ 
+@@ -955,20 +897,9 @@ static int isp_probe(struct platform_device *pdev)
+ 
+ 	s_isp_private = isp_private;
+ 
+-	ret = isp_yiq_antiflicker_buf_alloc(isp_private, ISP_YIQ_ANTIFLICKER_SIZE);
+-	if (ret) {
+-		ret = -ENOMEM;
+-		isp_block_buf_free(isp_private);
+-		devm_kfree(&pdev->dev, isp_private);
+-		platform_set_drvdata(pdev, NULL);
+-		printk("isp_probe: no memory for isp lsc buf alloc, error.\n");
+-		return ret;
+-	}
+-
+ 	ret = misc_register(&isp_dev);
+ 	if (ret) {
+ 		ret = -EACCES;
+-		isp_yiq_antiflicker_buf_free(isp_private);
+ 		isp_block_buf_free(isp_private);
+ 		devm_kfree(&pdev->dev, isp_private);
+ 		platform_set_drvdata(pdev, NULL);
+@@ -976,6 +907,7 @@ static int isp_probe(struct platform_device *pdev)
+ 	}
+ 
+ 	parse_baseaddress(pdev->dev.of_node);
++	parse_irq(pdev->dev.of_node);
+ 	printk("isp_probe: success.\n");
+ 
+ 	return ret;
+@@ -988,7 +920,6 @@ static int isp_remove(struct platform_device *dev)
+ 	isp_private = platform_get_drvdata(dev);
+ 
+ 	if (isp_private) {
+-		isp_yiq_antiflicker_buf_free(isp_private);
+ 		isp_block_buf_free(isp_private);
+ 		devm_kfree(&dev->dev, isp_private);
+ 		platform_set_drvdata(dev, NULL);
+diff --git a/include/video/sprd_isp.h b/include/video/sprd_isp.h
+index 01b57aca..b4b2123c 100755
+--- a/include/video/sprd_isp.h
++++ b/include/video/sprd_isp.h
+@@ -70,6 +70,7 @@ enum isp_interrupt_mode {
+ 
+  enum isp_clk_sel {
+  	ISP_CLK_480M = 0,
++	ISP_CLK_468M,
+ 	ISP_CLK_384M,
+ 	ISP_CLK_312M,
+ 	ISP_CLK_256M,
+@@ -540,6 +541,7 @@ enum isp_block {
+ 	ISP_BLOCK_ARBITER_V1,
+ 	ISP_BLOCK_COMMON_V1,
+ 	ISP_BLOCK_RAW_SIZER,
++	ISP_BLOCK_BUFQUEUE,
+ /***************pike**************************************/
+ //	ISP_BLOCK_WDR,
+ 	ISP_BLOCK_RGB2Y,
+@@ -787,6 +789,7 @@ enum isp_binging4awb_property {
+ 	ISP_PRO_BINNING4AWB_STATISTICS_BUF,
+ 	ISP_PRO_BINNING4AWB_TRANSADDR,
+ 	ISP_PRO_BINNING4AWB_ENDIAN,
++	ISP_PRO_BINNING4AWB_INITBUF,
+ };
+ 
+ enum isp_pre_glb_gain_property {
+@@ -1103,6 +1106,18 @@ struct isp_b4awb_phys {
+ 	uint32_t phys1;
+ };
+ 
++enum isp_buf_node_type {
++	ISP_NODE_TYPE_BINNING4AWB,
++	ISP_NODE_TYPE_RAWAEM,
++	ISP_NODE_TYPE_AE_RESERVED,
++};
++
++struct isp_buf_node {
++	uint32_t    type;
++	uint64_t    k_addr;
++	uint64_t    u_addr;
++};
++
+ struct isp_hdr_rgb_index {
+ 	uint32_t r;
+ 	uint32_t g;
+@@ -1572,6 +1587,12 @@ enum isp_common_property_v1 {
+ 	ISP_PRO_COMMON_3A_SINGLE_FRAME_CTRL,
+ };
+ 
++enum isp_bufqueue_property {
++	ISP_PRO_BUFQUEUE_INIT,
++	ISP_PRO_BUFQUEUE_ENQUEUE_BUF,
++	ISP_PRO_BUFQUEUE_DEQUEUE_BUF,
++};
++
+ enum isp_pwd_property {
+ 	ISP_PRO_PWD_BLOCK,
+ 	ISP_PRO_PWD_SLICE_SIZE,
+@@ -1662,6 +1683,7 @@ enum isp_anti_flicker_property {
+ 	ISP_PRO_ANTI_FLICKER_BLOCK,
+ 	ISP_PRO_ANTI_FLICKER_STATISTIC,
+ 	ISP_PRO_ANTI_FLICKER_BYPASS,
++	ISP_PRO_ANTI_FLICKER_TRANSADDR,
+ };
+ 
+ enum isp_yiq_afm_property {

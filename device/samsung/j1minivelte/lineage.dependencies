@@ -1,0 +1,7 @@
+[
+  {
+    "repository": "lasania32198/android_kernel_samsung_j1minivelte",
+    "target_path": "kernel/samsung/j1minivelte",
+    "revision": "main"
+  }
+]

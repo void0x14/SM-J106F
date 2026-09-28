@@ -1,0 +1,9 @@
+export TOP=/home/void0x14/j106f/build/android
+export JAVA_HOME=$TOP/prebuilts/jdk/jdk8/linux-x86
+export ANDROID_JAVA_HOME=$JAVA_HOME
+export PATH=$JAVA_HOME/bin:/home/void0x14/j106f/build/py2shim:/home/void0x14/j106f/build/bin:$PATH
+export LC_ALL=C
+export USE_CCACHE=0
+cd $TOP
+source build/envsetup.sh
+export LD_LIBRARY_PATH=/home/void0x14/j106f/build/ncurses5compat:$LD_LIBRARY_PATH
