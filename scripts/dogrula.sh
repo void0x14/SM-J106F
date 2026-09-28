@@ -7,6 +7,7 @@
 set -u
 TOP="${TOP:-/home/void0x14/j106f/build/android}"
 P="$TOP/out/target/product/j1minivelte"
+S="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 say=0; ok=0
 chk() {
   say=$((say+1))
@@ -53,6 +54,10 @@ chk "su derlendi (intermediates)"    "[ -d '$P/obj/EXECUTABLES/su_intermediates'
 
 if [ -n "$Z" ]; then
   chk "zip icinde boot.img"          "unzip -l '$Z' | grep -c 'boot.img'"
+  # vmlinux'ta gormek yetmez: cihaza giden sey zip icindeki boot.img'dir.
+  # boot.img cekirdegi sikistirilmis zImage'dir; binder dizesi ic gzip akisinin
+  # icindedir, ham zImage baytlarinda gorunmez (yanlis negatif tuzagi).
+  chk "zip boot.img cekirdeginde binder" "bash '$S/kernel-kanit.sh' '$Z'"
   # Android 8.1 blok-OTA kullanir: system.img yerine system.new.dat.br +
   # system.transfer.list gelir. Ikisinden biri varsa system imaji tamamdir.
   chk "zip icinde system imaji"      "unzip -l '$Z' | grep -cE 'system\.(new\.dat|transfer\.list|img)'"
