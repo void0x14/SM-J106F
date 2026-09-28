@@ -16,7 +16,10 @@ TOP="${TOP:-/home/void0x14/j106f/build/android}"
 P="$TOP/out/target/product/j1minivelte"
 S="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 Z="${1:-$(ls "$P"/lineage-15.1-*-UNOFFICIAL-j1minivelte.zip 2>/dev/null | head -1)}"
-TF="${2:-$(ls "$P"/obj/PACKAGING/target_files_intermediates/*/IMAGES/system.img 2>/dev/null | tail -1)}"
+# target_files dizin adi rastgele bir hash'tir; alfabetik siralamanin en sonu
+# EN YENI demek DEGILDIR. Eski bir build'in system.img'i secilirse karsilastirma
+# yanlislikla "FARK" verir. En yeni mtime'a gore secilir.
+TF="${2:-$(ls -t "$P"/obj/PACKAGING/target_files_intermediates/*/IMAGES/system.img 2>/dev/null | head -1)}"
 
 [ -f "${Z:-}" ] || { echo "ZIP bulunamadi" >&2; exit 2; }
 [ -f "${TF:-}" ] || { echo "target_files system.img bulunamadi" >&2; exit 2; }
