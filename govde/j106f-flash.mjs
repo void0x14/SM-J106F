@@ -71,7 +71,28 @@ async function imajIncele(yol, policy) {
   const sinir = policy.icerik_tarama_limiti_bayt ?? 64 * 1024 * 1024
   const tumKodlar = [...policy.izinli_cihaz_kodlari, ...(policy.reddedilecek_cihaz_kodlari ?? [])]
 
-  const tara = (buf, etiket, hedef = kodlar) => {
+  // Icerik taramasinda kod adinin GECMESI yetmez; KIMLIK KALIBINA uymasi gerekir.
+  // Olculdu: stok j1minivelte boot.img icinde 'j1minilte' yalniz dokunmatik
+  // firmware yolundan gelir (melfas/j1minilte.fw, /sdcard/j1minilte.bin);
+  // ayni dosyada gercek kimlik izi 'samsung/j1miniveltejv/j1minivelte:6.0.1/...'
+  // seklindedir. Yol parcasini kimlik sanmak, telefonun KENDI imajini yabanci
+  // sayar. Bu yuzden kalipsiz gecisler yok sayilir.
+  const kimlikKaliplari = (kod) => {
+    const k = kod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    return [
+      // ro.product.device=j3xlte / ro.build.product=j3xlte / ro.product.name=j3xlte
+      new RegExp(`ro\\.(?:product\\.device|build\\.product|product\\.name)\\s*=\\s*${k}(?![a-z0-9])`, "i"),
+      // fingerprint govdesi: <marka>/<urun>/<kod>:<surum>  (or. samsung/j1miniveltejv/j1minivelte:6.0.1)
+      new RegExp(`/[a-z0-9_]*${k}[a-z0-9_]*/${k}:`, "i"),
+      // build flavor / description: <kod>-user
+      new RegExp(`(?<![a-z0-9])${k}-user(?![a-z0-9])`, "i"),
+    ]
+  }
+  const kimlikIzi = (metin, kod) => kimlikKaliplari(kod).some((re) => re.test(metin))
+  const adIzi = (metin, kod) =>
+    new RegExp(`(?<![a-z0-9])${kod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![a-z0-9])`, "i").test(metin)
+
+  const tara = (buf, etiket, hedef = kodlar, kalipli = true) => {
     // Android boot image / bootloader bloblari sikistirilmis olabilir. Ham bayt
     // taramasi gzip akisinin icini goremez; metin aramasindan once ac.
     // Not: sikistirilmis verinin ICINDE de 1f 8b 08 dizisi gecebilir; ilk
@@ -93,8 +114,7 @@ async function imajIncele(yol, policy) {
     for (const p of parcalar) {
       const metin = p.toString("latin1")
       for (const kod of tumKodlar) {
-        const kacis = kod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-        if (new RegExp(`(?<![a-z0-9])${kacis}(?![a-z0-9])`, "i").test(metin)) hedef.add(kod)
+        if ((kalipli ? kimlikIzi : adIzi)(metin, kod)) hedef.add(kod)
       }
       const propRe = /(ro\.(?:product\.device|build\.product|product\.name|product\.model))\s*=\s*([A-Za-z0-9_\-.]+)/g
       let m
@@ -105,7 +125,9 @@ async function imajIncele(yol, policy) {
   const alt = yol.toLowerCase()
   const oku = (arac, args) => {
     try {
-      return execFileSync(arac, args, { maxBuffer: sinir })
+      // stderr yutulur: 'tar: Exiting with failure status' gibi arac hatalari
+      // inceleme ciktisina sizarak kullaniciyi yanlis yonlendirmesin.
+      return execFileSync(arac, args, { maxBuffer: sinir, stdio: ["ignore", "pipe", "ignore"] })
     } catch {
       return null
     }
@@ -121,7 +143,10 @@ async function imajIncele(yol, policy) {
     if (l) adlar = l.toString().split("\n").filter(Boolean)
   }
 
-  if (adlar) {
+  // BOS liste arsiv DEGILDIR. Olculdu: sifir dolu bir dosyada `tar -tf` exit 0
+  // verip hicbir ad basmaz; `[]` truthy oldugu icin koruma ham icerigi hic
+  // taramaz ve 'kanit yok' deyip gecer. Arsiv ancak en az bir uye varsa arsivdir.
+  if (adlar && adlar.length) {
     for (const ad of adlar) icerik.push(ad)
     const arsiv = alt.endsWith(".zip") ? "unzip" : "tar"
     for (const ad of adlar.slice(0, 60)) {
@@ -142,7 +167,8 @@ async function imajIncele(yol, policy) {
   }
 
   // dış dosya adı da kanıt sayılır: 'twrp-j3xlte-recovery.tar' reddedilmeli
-  tara(Buffer.from(path.basename(yol), "latin1"), "dosya-adı", adKodlari)
+  // Dosya adinda kalip aranmaz; ad gecmesi yeter (kalipli=false).
+  tara(Buffer.from(path.basename(yol), "latin1"), "dosya-adı", adKodlari, false)
 
   return { kodlar: [...kodlar], adKodlari: [...adKodlari], prop, icerik }
 }
@@ -247,7 +273,11 @@ async function incele(imaj, bolum, kabul = false) {
   }
   // 3) Ham icerikteki kod adi ZAYIF kanittir. Prop ve dosya adi bir sey soylemiyorsa konusur.
   //    Dokunmatik firmware yolu (melfas/j1minilte.fw) yuzunden dogru imaj reddedilmesin.
-  if (!propYesil.length && !adYesil.length && icerikRed.length) {
+  //    Icerik IZINLI kodu da gosteriyorsa iki zayif kanit celisir; zayif kanit karar vermez.
+  //    (Olculdu: stok boot.img'de j1minilte yalniz melfas/j1minilte.fw yolundan gelir;
+  //     ayni dosyada j1minivelte 552 kez gecer. Kural icerikYesil'i saymadigi icin
+  //     koruma telefonun KENDI stok boot.img'sini reddediyordu.)
+  if (!propYesil.length && !adYesil.length && !icerikYesil.length && icerikRed.length) {
     const h = await karantina("yanlis_cihaz_icerik", icerikRed.join(","))
     dur(`YANLIŞ CİHAZ İMAJI (içerik). Bu imaj şunlara ait: ${icerikRed.join(", ")}\n` +
         `     Senin telefonun: ${policy.cihaz.model} (${policy.cihaz.soc})\n` +

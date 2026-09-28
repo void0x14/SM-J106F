@@ -31,21 +31,22 @@
 
   "hedef_bolumler": ["recovery", "boot", "system", "modem"],
 
-  "_pit_bolum_adi_aciklama": "Heimdall bolum adlarini yalnizca cihazin PIT tablosundan cozer; takma ad yoktur (olculdu: ikili icinde 'boot'/'recovery' gibi adlar gecmez, hata metni 'No partition with identifier ... exists in the specified PIT'). Mantiksal ad -> PIT adi eslemesi burada tutulur. Boot bolumunun PIT adi KERNEL'dir; --boot yazmak 'Partition boot does not exist' verir.",
+  "_pit_bolum_adi_aciklama": "Heimdall bolum adlarini yalnizca cihazin PIT tablosundan cozer; takma ad yoktur (olculdu: ikili icinde 'boot'/'recovery' gibi adlar gecmez, hata metni 'No partition with identifier ... exists in the specified PIT'). Mantiksal ad -> PIT adi eslemesi burada tutulur. Boot bolumunun PIT adi KERNEL'dir; --boot yazmak 'Partition boot does not exist' verir. Adlar cihazin GERCEK PIT'inden olculdu (docs/pit/, 32 girdi): modem bolumunun adi 'MODEM' degil 'l_modem'dir; 'MODEM' diye bir girdi yoktur. Her adi scripts/govde-test.sh gercek PIT'e karsi dogrular.",
   "pit_bolum_adi": {
     "recovery": "RECOVERY",
     "boot": "KERNEL",
     "system": "SYSTEM",
-    "modem": "MODEM"
+    "modem": "l_modem"
   },
 
   "yasak_bolumler": ["bootloader", "uboot", "sbl1", "spl", "efs", "modemst1", "modemst2", "prodnv", "nvdata", "persist"],
 
+  "_bolum_boyut_ust_siniri_aciklama": "Inceleme yolunda kaba bir ust sinir. GERCEK sinir cihazin PIT tablosudur ve flash yolunda uygulanir (Kapı 3b: imaj <= PIT boyutu). Buradaki degerler cihazin OLCULEN bolum boyutlaridir (docs/pit/, bayt -> MiB): RECOVERY 20971520 -> 20, KERNEL 20971520 -> 20, SYSTEM 2902458368 -> 2768, l_modem 16777216 -> 16. Bolumden KUCUK deger, bolume SIGAN dogru imaji incelemede reddeder. scripts/govde-test.sh her kosuda gercek PIT ile karsilastirir.",
   "bolum_boyut_ust_siniri_mb": {
-    "recovery": 32,
-    "boot": 32,
-    "system": 2048,
-    "modem": 64
+    "recovery": 20,
+    "boot": 20,
+    "system": 2768,
+    "modem": 16
   },
 
   "onay_gecerlilik_saniye": 1800,

@@ -42,6 +42,8 @@ def ham_pit(d):
     sayi = struct.unpack_from("<I", d, 4)[0]
     if sayi == 0 or BASLIK + sayi * GIRDI > len(d):
         return None
+    gang = d[8:16].rstrip(b"\0").decode(errors="replace")
+    proje = d[16:24].rstrip(b"\0").decode(errors="replace")
     girdiler = []
     for i in range(sayi):
         (bt, dt, pid, attr, upd, bs, bc, fo, fs,
@@ -59,7 +61,7 @@ def ham_pit(d):
     for g in girdiler:
         g["baslangic_blok"] = g["block_size"] if v2 else g["file_offset"]
         g["boyut"] = g["block_count"] * BLOK if v2 else g["block_size"] * g["block_count"]
-    return {"surum": 2 if v2 else 1, "girdiler": girdiler}
+    return {"surum": 2 if v2 else 1, "gang": gang, "proje": proje, "girdiler": girdiler}
 
 
 def metin_pit(d):
@@ -119,6 +121,56 @@ def main(argv):
     if bicim == "--tsv":
         for g in p["girdiler"]:
             print(f"{g['name']}\t{g['boyut']}")
+        return 0
+    if bicim == "--print-pit":
+        # heimdall 'print-pit' metin bicimi. Neden gerekli: koruma
+        # (govde/j106f-flash.mjs pitBolumBoyu) bolum adini ve Device Type'i
+        # bu bicimden okur; ham .pit ikilisini okumaz. Ayni PIT'i iki ayri
+        # yoldan ayni sonuca baglamak icin.
+        #
+        # Alan sirasi ve adlari KAYNAKTAN alindi
+        # (/tmp/hd/Heimdall-v2.2.2/heimdall/source/Interface.cpp:208-320):
+        #   Binary Type, Device Type, Identifier, Attributes, Update Attributes,
+        #   Partition Block Size/Offset, Partition Block Count,
+        #   File Offset (Obsolete), File Size (Obsolete),
+        #   Partition Name, Flash Filename, FOTA Filename
+        # Cihazin gercek degerleri yazilir; sabit metin degil.
+        # Enum degerleri KAYNAKTAN (libpit/source/libpit.h:53-79):
+        #   binary: 0 AP, 1 CP
+        #   device: 0 OneNAND, 1 File/FAT, 2 MMC, 3 All (?), 8 UFS
+        #   attr  : bit0 Read/Write, bit1 STL
+        #   update: bit0 FOTA, bit1 Secure
+        adlar = {0: "OneNAND", 1: "File/FAT", 2: "MMC", 3: "All (?)", 8: "UFS"}
+        ikili = {0: "AP", 1: "CP"}
+        print("--- PIT Header ---")
+        print(f"Entry Count: {len(p['girdiler'])}")
+        print(f"Unknown string: {p.get('gang', '')}")
+        print(f"CPU/bootloader tag: {p.get('proje', '')}")
+        print(f"Logic unit count: {len(p['girdiler'])}")
+        for i, g in enumerate(p["girdiler"]):
+            dt = g.get("device_type", 2)
+            attr = g.get("attributes", 0)
+            upd = g.get("update_attrs", 0)
+            attr_metin = ("STL " if attr & 2 else "") + ("Read/Write" if attr & 1 else "Read-Only")
+            if upd:
+                upd_metin = f" ({'FOTA, Secure' if upd & 3 == 3 else 'FOTA' if upd & 1 else 'Secure'})"
+            else:
+                upd_metin = ""
+            print()
+            print(f"--- Entry #{i} ---")
+            print(f"Binary Type: {g.get('binary_type', 0)} ({ikili.get(g.get('binary_type', 0), 'Unknown')})")
+            print(f"Device Type: {dt} ({adlar.get(dt, 'Unknown')})")
+            print(f"Identifier: {g.get('id', i)}")
+            print(f"Attributes: {attr} ({attr_metin})")
+            print(f"Update Attributes: {upd}{upd_metin}")
+            print(f"Partition Block Size/Offset: {g.get('baslangic_blok', 0)}")
+            print(f"Partition Block Count: {g['block_count']}")
+            print(f"File Offset (Obsolete): {g.get('file_offset', 0)}")
+            print(f"File Size (Obsolete): {g.get('file_size', 0)}")
+            print(f"Partition Name: {g['name']}")
+            print(f"Flash Filename: {g.get('filename') or g['name'] + '.img'}")
+            print("FOTA Filename: ")
+        print()
         return 0
 
     print(f"dosya       : {yol}")

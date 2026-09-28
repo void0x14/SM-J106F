@@ -425,7 +425,12 @@ denetimi ve TTY zorunluluğu. Onay olmadan hiçbir imaj yazılamaz. Ayrıntı:
 - Heimdall bölüm adlarını **yalnızca cihazın PIT tablosundan** çözer. Boot
   bölümünün PIT adı `KERNEL`'dir; `--boot` yazmak
   `Partition "boot" does not exist in the specified PIT` verir. Eşleme
-  `govde/policy.json:pit_bolum_adi`.
+  `govde/policy.json:pit_bolum_adi`. Adlar cihazın gerçek tablosundan ölçüldü
+  (32 girdi): modem bölümünün adı `MODEM` değil **`l_modem`**'dir. Boyut üst
+  sınırları da ölçülen bölüm boyutlarıdır (`RECOVERY` 20 MiB, `KERNEL` 20 MiB,
+  `SYSTEM` 2768 MiB, `l_modem` 16 MiB); bölümden küçük sınır, sığdığı hâlde
+  doğru imajı incelemede reddeder. `govde-test.sh` her koşuda politika ile
+  gerçek PIT'i karşılaştırır.
 - heimdall **CLI arşiv açmaz** (tar desteği yalnızca `heimdall-frontend`'de).
   `recovery.tar`'ı olduğu gibi yazmak bölüme tar arşivini yazardı. Araç artık
   içindeki `.img`'yi çıkarıp boyutunu PIT'e karşı doğrulayıp onu yazar.
@@ -436,9 +441,21 @@ Cihaz kimliği üç kanıt katmanıyla sınanır:
 2. **dosya adı** — `twrp-j3xlte-recovery.tar` gibi bilerek yazılmış kanıt
 3. **ham içerik** — yalnızca ilk ikisi bir şey söylemiyorsa konuşur
 
-3. katmanın zayıf olmasının sebebi ölçülmüştür: J106F çekirdeği dokunmatik panel
-firmware'ini `melfas/j1minilte.fw` yoluyla taşır. Ham arama bunu cihaz kimliği sanıp
-doğru `recovery.tar`'ı reddediyordu.
+3. katmanda kod adının **geçmesi yetmez, kimlik kalıbına uyması gerekir**:
+`ro.product.device=<kod>`, `<marka>/<ürün>/<kod>:<sürüm>` fingerprint gövdesi,
+ya da `<kod>-user` flavor. Sebep ölçüldü: J106F çekirdeği dokunmatik panel
+firmware'ini `melfas/j1minilte.fw` ve `/sdcard/j1minilte.bin` yollarıyla taşır;
+aynı dosyada gerçek kimlik izi `samsung/j1miniveltejv/j1minivelte:6.0.1/...`
+şeklindedir. Kalıpsız arama yolu kimlik sanıp **telefonun kendi stok
+`boot.img`'sini** yabancı cihaz sayıyordu.
+
+Ayrıca ham içerik kanıtı, aynı dosyada izinli bir kod adı da geçiyorsa karar
+vermez: iki zayıf kanıt çelişir. (Ölçüm: stok `boot.img`'de `j1minilte` 2 kez
+yol olarak, `j1minivelte` ise kimlik kalıbıyla geçer.)
+
+Boş/çöp dosya **arşiv sayılmaz**: `tar -tf` sıfır dolu dosyada exit 0 verip hiç
+ad basmaz; boş liste arşiv sanılırsa ham içerik hiç taranmaz ve boyut kapısı
+atlanır. Arşiv ancak en az bir üye varsa arşivdir.
 
 Flash öncesi mutlaka yedeklenmeli: `efs`, `l_modem`, `nvitem`, `prodnv`.
 
@@ -608,18 +625,31 @@ giriyor; yüklenen 5 farklı blob'un `DT_NEEDED` komşuları tutarlı;
 
 ### govde-test.sh
 
-Korumanın red matrisini ve PIT ayrıştırıcısını cihazsız sınar. Hiçbir şey yazmaz.
+Korumanın **red** ve **kabul** matrisini, PIT ayrıştırıcısını ve politika–PIT
+tutarlılığını cihazsız sınar. Hiçbir şey yazmaz. Girdi sabit metin değildir:
+PIT, cihazın gerçek `docs/pit/*.pit` tablosundan `pit-coz.py --print-pit` ile
+çalışma anında üretilir, politika değerleri aynı tabloyla karşılaştırılır.
 
 ```
 ✔ yanlis cihaz (dosya adi j3xlte)   ✔ yasak bolum (efs)
 ✔ izinli olmayan uzanti             ✔ bolum belirtilmedi
-✔ TTY kapisi                        ✔ PIT alan sirasi + MMC/UFS blok boyutu
+✔ TTY kapisi                        ✔ OTA zip ham imaj degil
+✔ bos dosya arsiv sanilmiyor (boyut kapisi calisiyor)
+✔ kendi recovery.tar kabul edildi   ✔ kendi boot.img kabul edildi
+✔ stok boot.img kabul edildi        ✔ stok recovery.img kabul edildi
+✔ PIT alan sirasi + MMC/UFS blok boyutu (32 girdi)
+✔ politika adlari/boyutlari gercek PIT ile tutarli
 ```
 
-PIT ayrıştırıcısı kaynaktan doğrulandı (`heimdall/source/Interface.cpp:214-320`):
+Kabul yolu zorunludur: yalnızca reddi sınamak, korumanın doğru imajı da
+reddettiğini gizler. Test kurulurken tam bu oldu — koruma telefonun **kendi
+stok `boot.img`'sini** reddediyordu (aşağıda).
+
+PIT ayrıştırıcısı kaynaktan doğrulandı (`heimdall/source/Interface.cpp:208-320`):
 alan sırası `Device Type` → `Partition Block Count` → `Partition Name`. Tek bir
 "Name ... Count" regex'i **yanlış girdiyi** yakalar. Blok boyutu `MMC`=512,
-`UFS`=4096 (`FlashAction.cpp:331-334`).
+`UFS`=4096 (`FlashAction.cpp:331-334`); heimdall'ın `UFS` enum değeri 4 değil
+**8**'dir (`libpit/source/libpit.h:61-67`).
 
 `transfer.list` tuzağı: `new 2,0,1024` iki tam sayı = **tek** `(baş,bitiş)`
 aralığı `[0,1024)`, yani 1024 blok. Değerleri tek tek blok sanmak imajı bozar —
