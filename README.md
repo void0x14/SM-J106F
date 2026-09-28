@@ -62,6 +62,7 @@ kullanılır.
 | Dosya | Hedef | Ne yapar |
 |---|---|---|
 | `kernel-isp-port.patch` | `kernel/samsung/j1minivelte` | ISP sürücüsünü djeman'ın sharkls çekirdeğindeki yeni arayüze taşır (bkz. `docs/ISP-BULGU.md`) |
+| `kernel-binder-port.patch` | `kernel/samsung/j1minivelte` | Eski tek-cihazlı binder'ı AOSP 4.14 backport'u ile değiştirir; `/dev/hwbinder` + `/dev/vndbinder` yaratır (bkz. `docs/BINDER-BULGU.md`) |
 | `sharkls-common-j1minivelte.patch` | `device/samsung/sharkls-common` | j1minivelte'yi ortak ağaca kaydeder (init.rc, OTA assert, ramdisk) |
 | `hardware-ril-BOARD_PROVIDES_RILD.patch` | `hardware/ril` | AOSP `rild`'i `BOARD_PROVIDES_RILD` ile kapatır — cihaz ağacındaki kendi `rild`'iyle çakışmayı çözer |
 
@@ -153,4 +154,5 @@ Flash öncesi mutlaka yedeklenmeli: `efs`, `l_modem`, `nvitem`, `prodnv`.
 
 - `docs/plan.md` — ana plan, kararlar, riskler
 - `docs/ISP-BULGU.md` — ISP arayüz uyuşmazlığı ve çözümü (kritik)
+- `docs/BINDER-BULGU.md` — binder ABI uyuşmazlığı ve çözümü (kritik, boot blocker)
 - `docs/arastirma-raporu.md`, `docs/arastirma-raporu-2.md` — ROM araştırması
