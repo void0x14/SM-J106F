@@ -268,6 +268,43 @@ bash scripts/indir-gapps.sh
 
 Kurulum sırası: `lineage-15.1-*.zip` → GApps zip'i → yeniden başlat.
 
+### GApps uyumluluk ölçümü
+
+Paket cihaza uyuyor mu sorusu host'ta yanıtlanır; cihazda denenirse boot
+kaybedilir ve sebep görünmez. `scripts/gapps-denetle.sh` yükü ağacın
+**kopyasına** uygular (cihaza hiçbir şey yazmaz) ve beş kapı koşar:
+
+```bash
+bash scripts/gapps-denetle.sh <gapps.zip> <system-agaci> [<ramdisk-dizini>] [<system.img>]
+```
+
+| Kapı | Ne sınar |
+|---|---|
+| mimari | yükteki her ELF'in `e_machine`'i cihaz ağacıyla aynı mı (sabit mimari adı yok; referans ağaçtan okunur) |
+| çakışma | yükteki her dosya ağaçta var mı (idempotans: zaten uygulanmış ağaçta 25 çakışma verir) |
+| hedef dizin | kurucunun yazacağı dizinler var mı |
+| yer | ham imajdan (`tune2fs`) bölümün gerçek boş alanı yetiyor mu |
+| sessiz-hata | `elf-kapanis.py` + `init-denetle.py` uygulanmış kopya üzerinde |
+
+Ölçüldü (build10 sistemi, `MindTheGapps-8.1.0-arm`):
+
+```
+yuk e_machine  : 40   (agac referansi: 40)   -> OK
+cakisan dosya  : 0
+agacta olmayan : 0
+bolum          : 2048 MB, bos 1207 MB        -> OK  yuk bolume sigiyor
+saglanan kutuphane : 555 / kok : 292 / erisilebilen ELF : 595  -> yukleyici zinciri saglam
+tanimli servis : 71  -> SAGLAM
+SONUC: GApps uygulanabilir, sessiz-hata kapilari temiz
+```
+
+Ek olarak ölçüldü: `ro.control_privapp_permissions` build.prop'ta yok
+(`RoSystemProperties.java:56-63` → `CONTROL_PRIVAPP_PERMISSIONS_DISABLE`),
+yani GApps'in `privapp-permissions-google.xml` boşlukları boot'u kilitleyemez.
+GApps'in yazdığı yollar AOSP yakalayıcısına düşer
+(`plat_file_contexts:26` `/system(/.*)? → system_file`), kurucunun
+`chcon system_file`'ı platform varsayılanıyla birebir aynıdır.
+
 ## Ekran yoğunluğu düzeltmesi
 
 `device/samsung/sharkls-common/system.prop` başlığı `# system.prop for j320fn` —
@@ -403,6 +440,7 @@ boşluğu kapatır. Hiçbiri diğerinin yerine geçmez:
 | `elf-kapanis.py` | `DT_NEEDED` kapanışı + çözülemeyen sembol (sessiz yükleyici hatası sınıfı) |
 | `kernel-kanit.sh` | zip içindeki `boot.img` çekirdeğinde `binder,hwbinder,vndbinder` var |
 | `ota-sistem-kanit.sh` | zip içindeki sistem, doğrulanmış `system.img` ile **bit bit** aynı |
+| `gapps-denetle.sh` | GApps yükü cihaza uyuyor mu: mimari, çakışma, yer, sessiz-hata kapıları |
 | `govde-test.sh` | koruma red matrisi + PIT ayrıştırıcı (cihaz gerekmez) |
 | `govde/j106f-flash.mjs` | yanlış imajın yazılması teknik olarak imkânsız |
 
