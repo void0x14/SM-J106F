@@ -442,6 +442,7 @@ boşluğu kapatır. Hiçbiri diğerinin yerine geçmez:
 | `ota-sistem-kanit.sh` | zip içindeki sistem, doğrulanmış `system.img` ile **bit bit** aynı |
 | `gapps-denetle.sh` | GApps yükü cihaza uyuyor mu: mimari, çakışma, yer, sessiz-hata kapıları |
 | `govde-test.sh` | koruma red matrisi + PIT ayrıştırıcı (cihaz gerekmez) |
+| `kanca-test.mjs` | guard kancasının kararı, model devre dışı (canlı denemede modelin kendi reddi karışabilir) |
 | `govde/j106f-flash.mjs` | yanlış imajın yazılması teknik olarak imkânsız |
 
 ### kernel-kanit.sh
