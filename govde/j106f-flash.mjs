@@ -13,6 +13,7 @@
 import fs from "node:fs"
 import fsp from "node:fs/promises"
 import path from "node:path"
+import os from "node:os"
 import crypto from "node:crypto"
 import zlib from "node:zlib"
 import { execFileSync, spawnSync } from "node:child_process"
@@ -148,6 +149,30 @@ async function imajIncele(yol, policy) {
 
 function cizgi() {
   console.log("=".repeat(72))
+}
+
+// heimdall print-pit ciktisindan bir bolumun bayt cinsinden boyutunu cikarir.
+// Alan sirasi KAYNAKTAN dogrulandi (heimdall/source/Interface.cpp:214-320):
+// her girdi "--- Entry #N ---" ile baslar; icinde sirayla
+//   Device Type: <n> (MMC|UFS|...)
+//   Partition Block Size/Offset: <n>
+//   Partition Block Count: <n>
+//   ...
+//   Partition Name: <ad>
+// Yani Partition Block Count, Partition Name'DEN ONCE gelir; ikisini tek bir
+// "Name ... Count" regex'i ile eslemek YANLIS girdiyi yakalar.
+// Blok boyutu: MMC -> 512, UFS -> 4096 (FlashAction.cpp:331-334).
+function pitBolumBoyu(pitMetin, pitAdi) {
+  const girdiler = pitMetin.split(/--- Entry #\d+ ---/)
+  for (const g of girdiler) {
+    const ad = /Partition Name: (.+)/.exec(g)
+    if (!ad || ad[1].trim() !== pitAdi) continue
+    const sayi = /Partition Block Count: (\d+)/.exec(g)
+    if (!sayi) return null
+    const ufs = /Device Type: \d+ \(UFS\)/.test(g)
+    return Number(sayi[1]) * (ufs ? 4096 : 512)
+  }
+  return null
 }
 
 async function incele(imaj, bolum, kabul = false) {
@@ -324,6 +349,46 @@ async function flash(imaj, bolum, gercek) {
   }
   gecti("Kapı 3 — cihaz download mode'da")
 
+  // Heimdall bolum adlarini YALNIZCA cihazin PIT tablosundan cozer; takma ad
+  // yoktur. Boot bolumunun PIT adi KERNEL'dir — '--boot' yazmak
+  // "Partition boot does not exist in the specified PIT" ile biter.
+  // Mantiksal ad -> PIT adi eslemesi policy.json'dadir.
+  const pitAdi = policy.pit_bolum_adi?.[bolum] ?? bolum
+  const pit = spawnSync("heimdall", ["print-pit", "--no-reboot"], { encoding: "utf8" })
+  if (pit.status !== 0) dur(`PIT tablosu okunamadı (heimdall print-pit, kod ${pit.status}).`)
+  const pitBoy = pitBolumBoyu(pit.stdout ?? "", pitAdi)
+  if (pitBoy === null) {
+    dur(`Cihazin PIT tablosunda '${pitAdi}' bolumu yok (mantiksal ad: ${bolum}).\n` +
+        `     Yanlis cihaz olabilir. PIT'i elle kontrol et: heimdall print-pit --no-reboot`)
+  }
+  const dosyaBoy = fs.statSync(yol).size
+  if (dosyaBoy > pitBoy) {
+    dur(`Imaj cihazin bolumune SIGMAZ: dosya ${dosyaBoy} bayt > ${pitAdi} ${pitBoy} bayt.`)
+  }
+  gecti(`Kapı 3b — PIT: ${pitAdi} ${pitBoy} bayt, imaj ${dosyaBoy} bayt (sigar)`)
+
+  // heimdall CLI arsiv ACMAZ. Tar destegi yalnizca heimdall-frontend'dedir
+  // (olculdu: /usr/bin/heimdall ikilisinde 'ustar'/'tar'/'extract' dizeleri
+  // yok; heimdall-frontend'de 'temporary TAR file' var). Bu yuzden
+  // recovery.tar'i oldugu gibi yazmak bolume tar arsivini yazar, imaji degil.
+  // .tar/.tar.md5 verilirse icindeki imaji cikarip ONU yazariz.
+  let yazilacakYol = yol
+  let gecici = null
+  let geciciDir = null
+  if (yol.toLowerCase().endsWith(".tar") || yol.toLowerCase().endsWith(".tar.md5")) {
+    const uye = (execFileSync("tar", ["-tf", yol], { encoding: "utf8" }) || "")
+      .split("\n").map((s) => s.trim()).filter(Boolean)
+      .find((s) => s.toLowerCase().endsWith(".img"))
+    if (!uye) dur("Tar arsivinde .img dosyasi yok.")
+    geciciDir = await fsp.mkdtemp(path.join(os.tmpdir(), "govde-"))
+    execFileSync("tar", ["-xf", yol, "-C", geciciDir, uye])
+    gecici = path.join(geciciDir, path.basename(uye))
+    yazilacakYol = gecici
+    const cikBoy = fs.statSync(gecici).size
+    if (cikBoy > pitBoy) dur(`Tar icindeki imaj bolume SIGMAZ: ${cikBoy} > ${pitBoy} bayt.`)
+    gecti(`Kapı 3c — tar acildi: ${uye} ${cikBoy} bayt`)
+  }
+
   // son kontrol: imaj hâlâ aynı mı
   if ((await sha256Dosya(yol)) !== sha) dur("İmaj onaydan sonra değişti.")
   gecti("Kapı 4 — imaj bayt bayt aynı")
@@ -331,17 +396,19 @@ async function flash(imaj, bolum, gercek) {
   cizgi()
   const son = await sor(`Yazmak için tam olarak "YAZ ${bolum}" yaz: `)
   if (son.trim() !== `YAZ ${bolum}`) {
+    if (geciciDir) await fsp.rm(geciciDir, { force: true, recursive: true })
     await journal({ olay: "flash_reddi", sebep: "son_onay_yok", sha256: sha })
     dur("Son onay verilmedi.")
   }
 
-  const komut = ["heimdall", "flash", `--${bolum}`, yol, "--no-reboot"]
+  const komut = ["heimdall", "flash", `--${pitAdi}`, yazilacakYol, "--no-reboot"]
   await journal({ olay: "flash_basliyor", sha256: sha, bolum, komut, gercek: !!gercek })
 
   if (!gercek) {
     console.log(`\n  ${Y}KURU ÇALIŞMA. Gerçek yazım yapılmadı.${X}`)
     console.log(`  Komut: ${komut.join(" ")}`)
     console.log(`  Gerçekten yazmak için: --gercek ekle\n`)
+    if (geciciDir) await fsp.rm(geciciDir, { force: true, recursive: true })
     return
   }
 
@@ -350,6 +417,7 @@ async function flash(imaj, bolum, gercek) {
 
   console.log(`\n  ${B}YAZILIYOR...${X}`)
   const r = spawnSync("heimdall", komut.slice(1), { stdio: "inherit" })
+  if (geciciDir) await fsp.rm(geciciDir, { force: true, recursive: true })
   await journal({ olay: "flash_bitti", sha256: sha, bolum, cikis_kodu: r.status })
   if (r.status !== 0) dur(`heimdall başarısız (kod ${r.status})`)
   gecti("Yazım tamam. Telefonu elle yeniden başlat.")

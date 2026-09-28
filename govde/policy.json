@@ -31,6 +31,14 @@
 
   "hedef_bolumler": ["recovery", "boot", "system", "modem"],
 
+  "_pit_bolum_adi_aciklama": "Heimdall bolum adlarini yalnizca cihazin PIT tablosundan cozer; takma ad yoktur (olculdu: ikili icinde 'boot'/'recovery' gibi adlar gecmez, hata metni 'No partition with identifier ... exists in the specified PIT'). Mantiksal ad -> PIT adi eslemesi burada tutulur. Boot bolumunun PIT adi KERNEL'dir; --boot yazmak 'Partition boot does not exist' verir.",
+  "pit_bolum_adi": {
+    "recovery": "RECOVERY",
+    "boot": "KERNEL",
+    "system": "SYSTEM",
+    "modem": "MODEM"
+  },
+
   "yasak_bolumler": ["bootloader", "uboot", "sbl1", "spl", "efs", "modemst1", "modemst2", "prodnv", "nvdata", "persist"],
 
   "bolum_boyut_ust_siniri_mb": {
