@@ -110,3 +110,66 @@ Sonuç: `SONUC: onyukleme zinciri saglam`.
 
 `scripts/init-denetle.py <system> - <ramdisk>`: 71 servis — her ikili yerinde,
 etiketli, domain geçişi tanımlı. `SAGLAM`.
+
+## 4. Halka: charger modu servisi (düzeltildi)
+
+`device/samsung/sharkls-common` (djeman, J3 2016) ağacından miras kalan
+`init.board.rc` şunu tanımlıyordu:
+
+```
+service healthd-charger /sbin/healthd -c
+    class charger
+    critical
+    seclabel u:r:healthd:s0
+```
+
+`/sbin/healthd` bu yapıda **yok**. Ölçüm (`system/core/healthd/Android.mk`):
+
+| Modül | `LOCAL_MODULE_PATH` | Nereye kurulur |
+|---|---|---|
+| `charger` (`:109-112`) | `$(TARGET_ROOT_OUT_SBIN)` | `/sbin/charger` |
+| `healthd` (`:193`) | yok (varsayılan) | `/system/bin/healthd` |
+
+Üstelik Android 8.1'de `healthd.cpp:120-124` `main` argv'yi **hiç okumaz**
+(`healthd_mode_ops = &android_ops; return healthd_main();`) — `-c` işlemez.
+`-c`/`-r` bayraklarını yalnız `charger.cpp:79-97` (`getopt(argc, argv, "cr")`)
+işler. Yani 8.1'de charger modunun doğru ikilisi `/sbin/charger`.
+
+Sessiz ölüm mekanizması: `Service::Start()` (`service.cpp:710-714`) `stat()`
+başarısız olunca servisi `SVC_DISABLED` yapıp `false` döner — **fork etmez**.
+`Reap()` yalnız gerçekten fork edilmiş pid için çağrıldığından (`ReapOneProcess`
+→ `FindServiceByPid`) `panic()` yolu **tetiklenmez**. Sonuç: cihaz tuğlalanmaz,
+ama charger modunda (`androidboot.mode=charger` → `ro.bootmode=charger` →
+`init.cpp:1176-1178` `late-init` yerine `charger` tetikler) `class_start charger`
+ölü bir servis bulur; pil şarj ekranı çizilmez ve `sys.boot_from_charger_mode`
+(`healthd_mode_charger.cpp:433`) hiç yazılmaz — şarjdan tam önyüklemeye geçilemez.
+
+Düzeltme (`init.board.rc:306-309`):
+
+```
+service healthd-charger /sbin/charger -c
+    class charger
+    critical
+    seclabel u:r:charger:s0
+```
+
+Domain değişti çünkü `/sbin/charger` `rootfs` etiketlidir; `charger.te` başlığı
+bunu zaten söyler ("charger seclabel is specified in init.rc since it lives in
+the rootfs and has no unique file type") ve geçiş `init.te:6`
+`domain_trans(init, rootfs, charger)` ile tanımlıdır. `charger` domaini ihtiyaç
+duyduğu her şeyi taşır: `graphics_device`, `input_device`, `sysfs_batteryinfo`,
+`tty_device`, `wakelock_use`, `set_prop(charger, system_prop)`. Binder gerekmez —
+`BatteryPropertiesRegistrar::publish` yalnız `healthd_mode_android_init`
+(`healthd_mode_android.cpp:52-66`) yolunda çağrılır, charger modunda değil.
+
+Ölçüm (yeni ramdisk, `boot.img` içinden açıldı):
+
+```
+service healthd-charger /sbin/charger -c
+    class charger
+    critical
+    seclabel u:r:charger:s0
+```
+
+`init-denetle.py` sonrası: 71 servis `SAGLAM` (öncesinde `healthd-charger`
+ikilisiz listeleniyordu).

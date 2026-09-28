@@ -550,6 +550,23 @@ index fa546fd..5a561d1 100644
  include $(CLEAR_VARS)
  LOCAL_MODULE       := init.sc8830.rc
  LOCAL_MODULE_TAGS  := optional eng
+diff --git a/rootdir/etc/init.board.rc b/rootdir/etc/init.board.rc
+index c7ba6f0..df5ce48 100755
+--- a/rootdir/etc/init.board.rc
++++ b/rootdir/etc/init.board.rc
+@@ -303,10 +303,10 @@ service compact_memory /sbin/bgcompact
+     oneshot
+     disabled
+ 
+-service healthd-charger /sbin/healthd -c
++service healthd-charger /sbin/charger -c
+     class charger
+     critical
+-    seclabel u:r:healthd:s0
++    seclabel u:r:charger:s0
+ 
+ #override
+ service media /system/bin/mediaserver
 diff --git a/rootdir/etc/init.j1minivelte.rc b/rootdir/etc/init.j1minivelte.rc
 new file mode 100755
 index 0000000..8edb8ef

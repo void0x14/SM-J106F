@@ -700,5 +700,7 @@ fstab yollarıyla aynı. Ayrı TWRP indirmeye gerek yok. Ayrıntı ve ölçüm:
 - `docs/RECOVERY-TWRP.md` — üretilen `recovery.img` = TWRP 3.2.3-0; ROM zip'ini
   kuracak kadar (assert, brotli, PIT yolları ölçüldü)
 - `docs/BOOT-ZINCIRI.md` — `ro.hardware` üç kaynaktan doğrulandı; stok ile fark,
-  ölümcül olmayan rc importu
+  ölümcül olmayan rc importu, charger modu servis düzeltmesi
+- `docs/ROOT-ERISIM.md` — root varsayılan kapalı; Developer options ile açılır,
+  zincirin her halkası kaynaktan doğrulandı
 - `docs/arastirma-raporu.md`, `docs/arastirma-raporu-2.md` — ROM araştırması
