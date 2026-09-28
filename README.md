@@ -218,16 +218,42 @@ ramdisk yerleşimini LK kendisi yapar (`boot.img` başlığındaki adresler
 1 GB cihazda RAM'i kırpar.
 
 `scripts/boot-zinciri.py` bu zinciri üç halkada denetler: etkin cmdline →
-`ro.hardware`, rc `import` grafiği kapanışı, ve ramdisk yerleşimi. DT'deki
-`linux,initrd-start/end` **yer tutucudur** (668.178 B), gerçek ramdisk 3.801.972 B;
-LK bunu boot anında yamalar, bu yüzden pencere boyutu değil varlığı denetlenir.
+`ro.hardware`, rc `import` grafiği kapanışı, ve ramdisk yerleşimi.
+
+Üçüncü halka **kaynak `.dts` metnini değil, cihaza giden `dt.img` konteynerini**
+ayrıştırır. Sebep: cihaza yazılan şey konteynerdir. SPRD biçimi
+`<4s 'SPRD'><u32 sürüm><u32 adet>` ardından her girdi için
+`<u32 boyut><u32 ofset>`; bir girdi **birden fazla** FDT taşıyabilir ve her
+FDT'nin uzunluğu kendi `totalsize` alanındadır (başlığın 4. baytı, big-endian).
+
+Ölçüldü (bu cihazın `dt.img`'si): `sürüm=1 girdi=2 boyut=129024`; `girdi1`
+iki FDT içerir (`@+0` ve `@+63488`, her biri 61.539 B), ikisinde de initrd
+penceresi `0x85500000..0x855a3212` (668.178 B). Bu **yer tutucudur**, gerçek
+ramdisk 3.801.974 B; LK boot anında yamalar, bu yüzden pencere boyutu değil
+geçerliliği ve varlığı denetlenir. Derlenen `dt.img`, stok referansla
+(`kaynak/ref/*/prebuilt/dt.img`) **sha256 birebir aynıdır**.
 
 ```
-$ python3 scripts/boot-zinciri.py out/target/product/j1minivelte
+$ python3 scripts/boot-zinciri.py out/target/product/j1minivelte <kernel-dizini>
   cmdline modu   : EXTEND
   ro.hardware    : sc8830  (kaynak: CONFIG_CMDLINE)
+  SPRD konteyner : surum=1 girdi=2 boyut=129024 bayt
+    girdi1@+0: boyut=61539 initrd 0x85500000..0x855a3212 (668178 bayt)
+    girdi1@+63488: boyut=61539 initrd 0x85500000..0x855a3212 (668178 bayt)
 SONUC: onyukleme zinciri saglam
 ```
+
+Negatif deneme: `dt.img` içindeki `linux,initrd-start/end` adları bozulunca
+betik `KOPUK HALKA VAR` verip exit 1 döner.
+
+### QEMU ile önyükleme neden denenemez
+
+Derlenen çekirdek yalnızca `CONFIG_ARCH_SCX35L=y` içerir;
+`CONFIG_ARCH_VERSATILE`, `CONFIG_ARCH_EXYNOS`, `CONFIG_ARCH_VIRT` **kapalıdır**
+(`obj/KERNEL_OBJ/.config`). QEMU'nun `vexpress-*` ve `virt` makineleri bu
+yapılandırmayla çalışmaz. QEMU için yeniden yapılandırmak, cihaza giden
+çekirdekten **başka** bir çekirdek üretir; o yüzden init servislerinin
+ayakta kalktığını QEMU ile kanıtlamak bu ROM için geçerli bir ölçüm değildir.
 
 ### Çekirdek sözleşmesi (Android 8.1 ↔ 3.10.65)
 

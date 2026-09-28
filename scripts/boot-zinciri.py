@@ -138,6 +138,78 @@ def dts_memory(dts_yolu):
     return int(m.group(1), 16), int(m.group(2), 16)
 
 
+# --------------------------------------------------------------------------
+# SPRD dt.img konteyneri
+# --------------------------------------------------------------------------
+# Bicim: '<4s SPRD><u32 surum><u32 adet>' ardindan her girdi icin
+# '<u32 boyut><u32 ofset>'. Ofsetler konteyner basina gore; girdinin ilk
+# baytlari FDT magic olmali. Ucuncu halka icin onemli olan: LK'nin boot
+# aninda yamalayacagi linux,initrd-start/end ozelligi bu FDT'lerin
+# icinde mi ve gecerli mi.
+SPRD_MAGIC = b"SPRD"
+FDT_MAGIC = b"\xd0\x0d\xfe\xed"
+
+
+def sprd_dt_konteyner(yol):
+    """dt.img icindeki FDT bloblarini (ofset, boyut, bayt) olarak dondurur.
+
+    Konteyner degilse None doner (cagiran taraf DTS metnine duser).
+    """
+    if not yol or not os.path.exists(yol):
+        return None
+    d = open(yol, "rb").read()
+    if d[:4] != SPRD_MAGIC or len(d) < 12:
+        return None
+    surum, adet = struct.unpack_from("<II", d, 4)
+    girdiler = []
+    for i in range(adet):
+        t = 12 + i * 8
+        if t + 8 > len(d):
+            break
+        boyut, ofset = struct.unpack_from("<II", d, t)
+        girdiler.append((ofset, boyut, d[ofset:ofset + boyut]))
+    return surum, adet, girdiler
+
+
+def fdt_initrd_penceresi(fdt_bayt):
+    """FDT icindeki linux,initrd-start/end ciftini dondurur (yoksa None).
+
+    Birden fazla olabilir (bu cihazin stok DT'sinde 2 tane var); ilkini alir.
+    """
+    bas = son = None
+    for _yol, ad, deger in (_fdt_walk(fdt_bayt) or []):
+        if len(deger) >= 4:
+            v = struct.unpack_from(">I", deger, 0)[0]
+            if ad == "linux,initrd-start" and bas is None:
+                bas = v
+            elif ad == "linux,initrd-end" and son is None:
+                son = v
+    if bas is None or son is None:
+        return None
+    return bas, son
+
+
+def fdt_bloblari(bayt):
+    """Bir bayt araligindaki TUM FDT bloblarini (goreli_ofset, blob) uretir.
+
+    Bir SPRD girdisi birden fazla DTB tasiyabilir (bu cihazda entry1 iki
+    DTB icerir: 2048 ve 65536). Her birinin uzunlugu kendi totalsize
+    alanindadir (basligin 4. bayti, big-endian). Ardisik bloblar 4 bayta
+    hizali baslar.
+    """
+    i = 0
+    while i + 8 <= len(bayt):
+        if bayt[i:i + 4] != FDT_MAGIC:
+            i += 4
+            continue
+        tot = struct.unpack_from(">I", bayt, i + 4)[0]
+        if tot < 8 or i + tot > len(bayt):
+            i += 4
+            continue
+        yield i, bayt[i:i + tot]
+        i += (tot + 3) & ~3
+
+
 def kernel_config(kernel_dizini, urun=None):
     """Derlenmis .config'den onyukleme ile ilgili anahtarlari okur.
 
@@ -338,22 +410,49 @@ def main():
         # DT'deki yer tutucu pencere LK tarafindan yamalaniyor mu.
         if rs <= 0:
             BASARISIZ.append("boot.img ramdisk boyutu sifir")
-        # DT yer tutucu penceresi: LK yamalar, ama en azindan DT'de mevcut olmali
-        if kaynak_dts:
-            s = open(kaynak_dts, errors="replace").read()
-            m = re.search(r'linux,initrd-start\s*=\s*<(0x[0-9a-fA-F]+)>', s)
-            n = re.search(r'linux,initrd-end\s*=\s*<(0x[0-9a-fA-F]+)>', s)
-            if m and n:
-                a, b_ = int(m.group(1), 16), int(n.group(1), 16)
-                print(f"  DT yer tutucu   : 0x{a:08x}..0x{b_:08x} "
-                      f"({b_-a} bayt)")
-                print("                    (LK boot aninda gercek ramdisk")
-                print("                     adresi/boyutu ile degistirir)")
-                if b_ <= a:
-                    BASARISIZ.append("DT initrd penceresi gecersiz (end<=start)")
+        # DT yer tutucu penceresi: LK boot aninda yamalar; ama DT'de
+        # linux,initrd-start/end BULUNMALI yoksa yamalayacak dugum yoktur.
+        # Gercek dt.img konteyneri ayristirilir (kaynak DTS metni degil):
+        # cihaza giden sey konteynerin kendisidir, .dts dosyasi degil.
+        dtimg = bul(urun, "dt.img")
+        if not dtimg:
+            print("  dt.img bulunamadi")
+            BASARISIZ.append("dt.img yok: LK'nin yamalayacagi initrd penceresi belirsiz")
+        else:
+            k = sprd_dt_konteyner(dtimg)
+            if not k:
+                print(f"  dt.img SPRD konteyneri degil: {dtimg}")
+                BASARISIZ.append("dt.img SPRD biciminde degil")
             else:
-                BASARISIZ.append(
-                    "DT'de linux,initrd-start/end yok: LK yamalayacak yer bulamaz")
+                surum, adet, girdiler = k
+                print(f"  dt.img          : {dtimg}")
+                print(f"  SPRD konteyner  : surum={surum} girdi={adet} "
+                      f"boyut={os.path.getsize(dtimg)} bayt")
+                pencereler = 0
+                for idx, (ofset, boyut, bayt) in enumerate(girdiler):
+                    bloblar = list(fdt_bloblari(bayt))
+                    if not bloblar:
+                        print(f"    girdi{idx}: ofset={ofset} boyut={boyut} "
+                              f"FDT YOK")
+                        continue
+                    for goreli, blob in bloblar:
+                        p = fdt_initrd_penceresi(blob)
+                        etiket = f"girdi{idx}@+{goreli}"
+                        if p is None:
+                            print(f"    {etiket}: boyut={len(blob)} "
+                                  f"initrd penceresi YOK")
+                        else:
+                            a, b_ = p
+                            print(f"    {etiket}: boyut={len(blob)} "
+                                  f"initrd 0x{a:08x}..0x{b_:08x} ({b_-a} bayt)")
+                            if b_ <= a:
+                                BASARISIZ.append(
+                                    f"dt.img {etiket} initrd penceresi gecersiz")
+                            else:
+                                pencereler += 1
+                if pencereler == 0:
+                    BASARISIZ.append(
+                        "dt.img icindeki hicbir FDT'de gecerli initrd penceresi yok")
 
     print()
     if BASARISIZ:
