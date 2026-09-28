@@ -88,40 +88,61 @@ Telefon kapalıyken:
 Ses Açma + Home + Güç
 ```
 
-TWRP açılınca **hemen** yedek:
+TWRP açılınca **hemen** yedek. İki aşama, ikisi de zorunlu.
+
+### 6a. TWRP menüsünden (backup=1 olanlar)
 
 - `Backup` → `Select Partitions to Back Up`
-- İşaretle: **EFS**, **Modem** (l_modem), **Nvitem** (l_fixnv2), **Product Info** (prodnv)
-- Storage: **Micro SDcard** (dahili depolama değil — formatlanabilir)
+- İşaretle: **EFS**, **Preload**, **Product Info**
+- Storage: **Micro SDcard** (dahili depolama değil — `Format Data` onu siler)
 - `Swipe to Back Up`
 
-Yedek dosyasını bilgisayara da kopyala:
+### 6b. Ham `dd` — TWRP'nin yedeklemediği bölümler
+
+TWRP fstab'ında `backup=1` yalnızca `/efs`, `/preload` (HIDDEN), `/productinfo`
+(prodnv) üzerindedir. **`/l_modem` (l_modem) ve `/nvitem` (l_fixnv2) yedek
+kapsamı dışındadır.** Bunlar RF kalibrasyonu ve IMEI verisidir; kaybolursa
+şebeke bir daha gelmez ve geri yüklemenin yolu yoktur. Menüde görünmelerini
+beklemeden, elle alınır.
 
 ```bash
-adb pull /external_sd/TWRP/BACKUPS/<seri-no>/ ~/j106f-yedek/
+# TWRP açıkken, bilgisayardan. Okuma işlemidir; hiçbir şey yazılmaz.
+adb shell 'for B in l_modem l_fixnv2 prodnv efs; do
+  D=/dev/block/platform/sdio_emmc/by-name/$B
+  SZ=$(blockdev --getsize64 $D)
+  echo "$B: $SZ bayt"
+  dd if=$D of=/external_sd/$B.img bs=4096
+done'
 ```
 
-> TWRP fstab'ında bu bölümler `backup=1` olarak işaretli:
-> `/efs`, `/preload` (HIDDEN), `/productinfo` (prodnv).
-> `/nvitem` (l_fixnv2) ve `/l_modem` `backup=1` **değil** — TWRP menüsünde
-> görünmezlerse `adb shell` ile elle `dd` alınır:
->
-> ```bash
-> adb shell 'dd if=/dev/block/platform/sdio_emmc/by-name/l_fixnv2 of=/external_sd/nvitem.img'
-> adb shell 'dd if=/dev/block/platform/sdio_emmc/by-name/l_modem  of=/external_sd/l_modem.img'
-> adb shell 'dd if=/dev/block/platform/sdio_emmc/by-name/prodnv   of=/external_sd/prodnv.img'
-> ```
->
-> Bu okuma işlemidir; yazma değil.
+Boyut, cihazın gerçek PIT'inden okunur — sabit değer varsayılmaz.
+
+### 6c. Bilgisayara çek
+
+```bash
+mkdir -p ~/j106f-yedek
+adb pull /external_sd/TWRP/BACKUPS/ ~/j106f-yedek/TWRP/ 2>/dev/null
+adb pull /external_sd/l_modem.img   ~/j106f-yedek/
+adb pull /external_sd/l_fixnv2.img  ~/j106f-yedek/
+adb pull /external_sd/prodnv.img    ~/j106f-yedek/
+adb pull /external_sd/efs.img       ~/j106f-yedek/
+ls -la ~/j106f-yedek/
+```
 
 ## 7. Yedeği doğrula
 
+Boyutlar sıfırdan büyük olmalı. `dd` çıktısındaki `blockdev --getsize64` değeriyle
+karşılaştır — birebir eşit olmalı:
+
 ```bash
-ls -la ~/j106f-yedek/
 sha256sum ~/j106f-yedek/*
+for f in l_modem l_fixnv2 prodnv efs; do
+  echo "$f: $(stat -c %s ~/j106f-yedek/$f.img 2>/dev/null || echo YOK) bayt"
+done
 ```
 
-Boyutlar sıfırdan büyük olmalı. `efs` yedeği tipik olarak birkaç MB'dir.
+`l_modem` yedeği birkaç yüz KB, `l_fixnv2` birkaç yüz KB, `prodnv` birkaç MB
+civarındadır. Sıfır baytlık veya eksik dosya varsa **ROM'a geçme**.
 
 ## 8. ROM'u yazma (yalnızca yedek doğrulandıktan sonra)
 
