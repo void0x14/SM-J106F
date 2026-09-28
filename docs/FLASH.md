@@ -48,6 +48,25 @@ heimdall print-pit --no-reboot > ~/j106f-pit-$(date +%F).txt
 Çıktı, cihazdaki gerçek bölüm tablosunu verir. Bölüm adları buradan doğrulanır —
 sonraki adımlarda kullanılan isimler bu dosyayla eşleşmiyorsa **durulur**.
 
+Heimdall bölüm adlarını yalnızca bu tablodan çözer; **takma ad yoktur**. Boot
+bölümünün PIT adı `KERNEL`'dir — `heimdall flash --boot` çalışmaz:
+
+```
+Partition "boot" does not exist in the specified PIT.
+```
+
+`j106f-flash` bu eşlemeyi `govde/policy.json` içindeki `pit_bolum_adi` alanından
+okur ve yazmadan **önce** `print-pit`'ten bölümün gerçek boyutunu çıkarıp imajın
+sığdığını doğrular.
+
+```bash
+bash scripts/pit-dogrula.sh ~/j106f-pit-*.txt
+```
+
+Bu, PIT'teki gerçek boyutları derleme yapılandırmasıyla (`sharkls-common`'dan
+miras `BOARD_*IMAGE_PARTITION_SIZE`) karşılaştırır. Fark varsa imaj bölüme
+sığmaz; derleme boyutları düzeltilmeden yazılmaz.
+
 ## 5. TWRP'yi yaz (ilk yazma işlemi)
 
 Derleme çıktısı: `out/target/product/j1minivelte/recovery.tar`
@@ -70,7 +89,12 @@ Araç sırayla şunları ister:
 4. Gerçek bir TTY olduğunu doğrular — bu yüzden ajan çalıştıramaz.
 5. sha256 öneki + `YAZ recovery` yazısını ister.
 6. `heimdall detect` ile cihazı tekrar bulur.
-7. `--gercek` bayrağı yoksa sadece komutu yazar, yazmaz.
+7. `print-pit`'ten `RECOVERY` bölümünün gerçek boyutunu okur ve imajın sığdığını
+   doğrular (kapı 3b).
+8. `.tar` verildiyse içindeki `.img`'yi çıkarır, boyutunu PIT'e karşı doğrular ve
+   **onu** yazar (kapı 3c). heimdall CLI arşiv açmaz; `recovery.tar`'ı olduğu
+   gibi yazmak bölüme tar arşivini yazardı.
+9. `--gercek` bayrağı yoksa sadece komutu yazar, yazmaz.
 
 Son adım:
 

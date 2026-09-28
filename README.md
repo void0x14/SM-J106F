@@ -263,8 +263,19 @@ SELinux: `(type su)`, `(typetransition shell su_exec process su)`, `(typepermiss
 ## Güvenlik
 
 Flash işlemi **gövde koruması** (body guard) altındadır: cihaz izin listesi, bölüm
-izin listesi, boyut sınırı, TTL'li onay kaydı, imaj hash doğrulaması ve TTY zorunluluğu.
-Onay olmadan hiçbir imaj yazılamaz. Ayrıntı: `docs/plan.md` §7, `govde/KURULUM.md`.
+izin listesi, boyut sınırı, TTL'li onay kaydı, imaj hash doğrulaması, PIT boyut
+denetimi ve TTY zorunluluğu. Onay olmadan hiçbir imaj yazılamaz. Ayrıntı:
+`docs/plan.md` §7, `govde/KURULUM.md`, `docs/FLASH.md`.
+
+İki sessiz tuzak ölçülerek kapatıldı:
+
+- Heimdall bölüm adlarını **yalnızca cihazın PIT tablosundan** çözer. Boot
+  bölümünün PIT adı `KERNEL`'dir; `--boot` yazmak
+  `Partition "boot" does not exist in the specified PIT` verir. Eşleme
+  `govde/policy.json:pit_bolum_adi`.
+- heimdall **CLI arşiv açmaz** (tar desteği yalnızca `heimdall-frontend`'de).
+  `recovery.tar`'ı olduğu gibi yazmak bölüme tar arşivini yazardı. Araç artık
+  içindeki `.img`'yi çıkarıp boyutunu PIT'e karşı doğrulayıp onu yazar.
 
 Cihaz kimliği üç kanıt katmanıyla sınanır:
 
@@ -282,13 +293,14 @@ Flash öncesi mutlaka yedeklenmeli: `efs`, `l_modem`, `nvitem`, `prodnv`.
 
 `scripts/dogrula.sh` — 18/18. Çıktıların var olduğunu ve cihaza uygunluğunu sınar.
 
-Üç kanıt scripti, "derledim" ile "cihaza giden şey gerçekten o" arasındaki boşluğu
-kapatır. Hiçbiri diğerinin yerine geçmez:
+Dört kanıt scripti, "derledim" ile "cihaza giden şey gerçekten o" arasındaki
+boşluğu kapatır. Hiçbiri diğerinin yerine geçmez:
 
 | Script | Kanıtladığı |
 | --- | --- |
 | `kernel-kanit.sh` | zip içindeki `boot.img` çekirdeğinde `binder,hwbinder,vndbinder` var |
 | `ota-sistem-kanit.sh` | zip içindeki sistem, doğrulanmış `system.img` ile **bit bit** aynı |
+| `govde-test.sh` | koruma red matrisi + PIT ayrıştırıcı (cihaz gerekmez) |
 | `govde/j106f-flash.mjs` | yanlış imajın yazılması teknik olarak imkânsız |
 
 ### kernel-kanit.sh
@@ -316,6 +328,21 @@ zip -> brotli -> transfer.list blok haritası -> ham ext4
 
 Ölçüldü: 2678 girdi (dosya + symlink) yapı birebir aynı, 2098 normal dosya
 sha256 birebir aynı.
+
+### govde-test.sh
+
+Korumanın red matrisini ve PIT ayrıştırıcısını cihazsız sınar. Hiçbir şey yazmaz.
+
+```
+✔ yanlis cihaz (dosya adi j3xlte)   ✔ yasak bolum (efs)
+✔ izinli olmayan uzanti             ✔ bolum belirtilmedi
+✔ TTY kapisi                        ✔ PIT alan sirasi + MMC/UFS blok boyutu
+```
+
+PIT ayrıştırıcısı kaynaktan doğrulandı (`heimdall/source/Interface.cpp:214-320`):
+alan sırası `Device Type` → `Partition Block Count` → `Partition Name`. Tek bir
+"Name ... Count" regex'i **yanlış girdiyi** yakalar. Blok boyutu `MMC`=512,
+`UFS`=4096 (`FlashAction.cpp:331-334`).
 
 `transfer.list` tuzağı: `new 2,0,1024` iki tam sayı = **tek** `(baş,bitiş)`
 aralığı `[0,1024)`, yani 1024 blok. Değerleri tek tek blok sanmak imajı bozar —
