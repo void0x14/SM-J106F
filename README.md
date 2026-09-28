@@ -108,6 +108,41 @@ source build/envsetup.sh
 `py2shim/`, `python` ve `python2` adlarını ağaçtaki python2.7'ye bağlayan symlink
 dizinidir.
 
+#### Ağaçtaki python2'de zlib yok
+
+`prebuilts/python/linux-x86/2.7.5` gömülü python2.7.5'in `lib-dynload/` dizininde
+`zlib.so` **yoktur**. `releasetools/build_image.py` → `import gzip` → `import zlib`
+zinciri kırılır:
+
+```
+ImportError: No module named zlib
+FAILED: out/target/product/j1minivelte/cache.img
+```
+
+Çözüm: modülü ağacın kendi kaynağından (`external/python/cpython2/Modules/zlibmodule.c`)
+32-bit olarak derleyip `lib-dynload/` içine kur. Kaynak 2.7.13+ için yazılmıştır;
+python2.7.5'te bulunmayan `Py_SETREF`/`Py_XSETREF` makroları shim ile verilir.
+
+```bash
+bash scripts/fix-py2-zlib.sh
+```
+
+#### Git LFS nesneleri
+
+`repo sync` LFS nesnelerini indirmez. `external/chromium-webview/prebuilt/*/webview.apk`
+133 baytlık pointer olarak kalır ve signapk patlar:
+
+```
+java.util.zip.ZipException: error in opening zip file
+FAILED: out/target/product/j1minivelte/obj/APPS/webview_intermediates/package.apk
+```
+
+```bash
+bash scripts/fix-webview-lfs.sh
+```
+
+Ağaçta LFS kullanan tek yer bu dört dizindir.
+
 ### Host paketleri
 
 `zip` ve `bc` zorunlu; `gperf`, `lzop`, `pngcrush`, `schedtool` önerilir.
