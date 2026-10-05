@@ -1,25 +1,20 @@
 #!/bin/bash
-# heimdall KAPISI — OKUMA serbest, YAZMA gerçek terminal + yazılı onay ister.
+# heimdall KILITLI sarmalayici — USB reset'i imkansiz kilar.
 #
-# Kurulum:
-#   /usr/libexec/heimdall/heimdall.elf   gerçek ikili (0700 root:root)
-#   /usr/bin/heimdall                    bu kapı (0755)
-#   /usr/libexec/heimdall/heimdall.real  bu kapı (0755)
+# Kurulum: bu betik /usr/bin/heimdall yerine gecer (kapi + kilit birlikte).
+# Gercek ikili: /usr/libexec/heimdall/heimdall.elf
 #
-# Neden: `heimdall flash` hızlıdır ve geri dönüşü zordur. Ajan araçları
-# stdin'i "ignore" ile açar; ölçüldü: `tty` -> "not a tty". Yani ajan elinden
-# gelen HER çağrı TTY'sizdir ve yazma yolu burada kesilir. Kullanıcı kendi
-# terminalinde yazabilir.
+# Iki koruma birden:
+#   1) OKUMA KAPISI: yazma yalnizca TTY + 'YAZ' onayi ile (bkz. heimdall-kapi)
+#   2) RESET KILIDI: LD_PRELOAD ile libusb_reset_device 04e8:685d icin no-op
 #
-# Her çağrı journald'a düşer:  journalctl -t heimdall-kapi
-#
-# SINIR (dürüst): Bu makinede `void0x14 ALL=(ALL) NOPASSWD: ALL` var. Yani
-# root yetkisi olan biri gerçek ikiliyi (heimdall.elf) doğrudan çağırabilir.
-# Bu kapı KAZARA ve HIZLI yazmayı engeller; kötü niyetli root'u engellemez.
-# O katmanın karşılığı harness kapısıdır: ~/.grok/hooks/govde-koruma.sh
+# Neden reset kilidi: bu cihazda libusb_reset_device zarar veriyor. Olculdu:
+# reset sonrasi "urb status -2" (timeout) -> "Failed to send handshake".
+# Kilit, kazara VEYA kasitli reset'i de etkisiz kilar.
 
 set -u
 ELF="/usr/libexec/heimdall/heimdall.elf"
+KILIT="/usr/local/lib/libusb-reset-kilit.so"
 ETIKET="heimdall-kapi"
 
 izinli() {
@@ -39,41 +34,43 @@ done
 
 TTY="yok"; { [ -t 0 ] || [ -t 1 ] || [ -t 2 ]; } && TTY="var"
 
-# Eylem yok ya da okuma -> serbest
+# Reset kilidini her cagriya uygula (okuma da yazma da).
+kilitli() {
+  if [ -f "$KILIT" ]; then
+    LD_PRELOAD="$KILIT${LD_PRELOAD:+:$LD_PRELOAD}" sudo -n "$ELF" "$@"
+  else
+    sudo -n "$ELF" "$@"
+  fi
+}
+
 if [ -z "$EYLEM" ] || izinli "$EYLEM"; then
-  logger -t "$ETIKET" "IZIN eylem=${EYLEM:-yok} tty=$TTY uid=$(id -u) args=[$*]"
-  exec sudo -n "$ELF" "$@"
+  logger -t "$ETIKET" "IZIN eylem=${EYLEM:-yok} tty=$TTY args=[$*]"
+  kilitli "$@"
 fi
 
-# YAZMA -> TTY sart
 if [ "$TTY" = "yok" ]; then
-  logger -t "$ETIKET" "RED-TTY-YOK $EYLEM uid=$(id -u) args=[$*]"
+  logger -t "$ETIKET" "RED-TTY-YOK $EYLEM args=[$*]"
   {
     echo
     echo "  ⛔ heimdall YAZMA KAPISI — GERÇEK TERMİNAL YOK"
-    echo "  ─────────────────────────────────────────────"
     echo "  İstenen eylem : $EYLEM"
-    echo "  Bu çağrı bir ajan/otomasyon ortamından geliyor (TTY yok)."
     echo "  Yazma yalnızca kullanıcının KENDİ terminalinde yapılabilir."
-    echo "  Cihaza HİÇBİR ŞEY yazılmadı."
-    echo "  Kayıt: journalctl -t heimdall-kapi"
+    echo "  Cihaza HİÇBİR ŞEY yazılmadı.  journalctl -t heimdall-kapi"
     echo
   } >&2
   exit 13
 fi
 
-# YAZMA -> yazılı onay
 echo
-echo "  ⚠ heimdall YAZMA"
-echo "  eylem: $EYLEM"
-echo "  args : $*"
+echo "  ⚠ heimdall YAZMA — eylem: $EYLEM"
+echo "  args: $*"
 echo
 read -r -p "  Onaylamak için tam olarak 'YAZ' yaz: " ONAY < /dev/tty
 if [ "$ONAY" != "YAZ" ]; then
-  logger -t "$ETIKET" "RED-ONAY-YOK $EYLEM uid=$(id -u)"
+  logger -t "$ETIKET" "RED-ONAY-YOK $EYLEM"
   echo "  Onay verilmedi. Cihaza hiçbir şey yazılmadı." >&2
   exit 13
 fi
 
-logger -t "$ETIKET" "ONAYLI-YAZMA $EYLEM uid=$(id -u) args=[$*]"
-exec sudo -n "$ELF" "$@"
+logger -t "$ETIKET" "ONAYLI-YAZMA $EYLEM args=[$*]"
+kilitli "$@"
