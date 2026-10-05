@@ -46,6 +46,7 @@ kilitli() {
 if [ -z "$EYLEM" ] || izinli "$EYLEM"; then
   logger -t "$ETIKET" "IZIN eylem=${EYLEM:-yok} tty=$TTY args=[$*]"
   kilitli "$@"
+  exit $?
 fi
 
 if [ "$TTY" = "yok" ]; then
