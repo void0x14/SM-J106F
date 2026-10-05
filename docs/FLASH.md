@@ -271,12 +271,62 @@ Hizmetleri bozulur (veri şeması ilk boot'ta kurulur).
 
 ## 9. Geri dönüş (ROM açılmazsa)
 
-TWRP → `Restore` → yedek seç → `EFS` + `Modem` + `Nvitem` + `Product Info`.
+### 9a. Tek bölüm geri alma — RECOVERY (en hızlı, en güvenli)
 
-Stok ROM'a dönmek için Odin ile stok firmware (SamMobile/Updato, `J106F` model
-kodu tam eşleşmeli) yazılır. **Stok firmware'i yazarken `BL` (bootloader) ve
-`CP` (modem) bölümleri de yazılır** — bu, gövde korumasının kapsamı dışındadır
-ve ayrı bir karar gerektirir.
+TWRP yazıldı ama açılmadı / bootloop olduysa, **yalnızca RECOVERY bölümünü**
+stok imajla geri yaz. Bu işlem tek bölüme dokunur; KERNEL/SYSTEM/userdata
+etkilenmez.
+
+```bash
+# Stok recovery imajını Samsung firmware'inden çıkar (bir kez):
+#   AP_J106FJVU0ARH1_...tar.md5 içinden recovery.img
+cd ~/j106f/stok-dogru/parca          # recovery.img burada çıkarılmış olmalı
+
+j106f-flash incele recovery.img --bolum recovery
+j106f-flash flash  recovery.img --bolum recovery --gercek
+```
+
+Doğrulanmış stok recovery (cihazın kendi sürümü, `ARH1`):
+
+| Dosya | sha256 | Bayt |
+|---|---|---|
+| `recovery.img` (stok, AP'den) | `b1c3e7d58b70d03d7c6065eb5b2bdc408864f2c7c110f3f19c16dda84f3cf97c` | 10978320 |
+| `boot.img` (stok, AP'den) | `7aa8be2e132ed6713b38fb80877c3680e78ba74db5771db5ced7575d28b60742` | 10044432 |
+
+### 9b. Tam stok'a dönüş (telefon hiç açılmıyorsa)
+
+Download mode açık kaldığı sürece tam stok firmware yazılabilir. Dosyalar:
+
+```
+~/j106f/stok-dogru/
+  BL_J106FJVU0ARH1_CL14293734_...tar.md5      bootloader
+  AP_J106FJVU0ARH1_CL14293734_...tar.md5      boot + recovery + system
+  CP_J106FJVU0ARB3_CL13092899_...tar.md5      modem
+  CSC_OJV_J106FOJV0ARI1_...tar.md5            bölge (veriyi siler)
+```
+
+**Sürüm uyumu ölçüldü:** cihazın `ARH1` sürümü ile bu firmware birebir aynı
+(`J106FJVU0ARH1`). Samsung anti-rollback (`SW REV CHECK FAIL`) engeli yok —
+daha eski sürüm yazılmaya çalışılsa engellenirdi, bu aynı sürüm.
+
+> **DİKKAT — tar üye seçimi.** Stok firmware tar'ları çok üyelidir:
+> `AP` içinde `boot.img`, `recovery.img`, `system.img` sırayla gelir.
+> Sarmalayıcı `--bolum` verdiğiniz bölüme göre **doğru** üyeyi seçer
+> (`policy.json → tar_uye_adi`). Bölüm↔üye eşlemesi tutmazsa yazma
+> reddedilir. Kanıt: `scripts/tar-uye-test.sh` (13/13).
+> Eski bir hata, "ilk `.img`" alındığı için `--bolum recovery` verilince
+> RECOVERY'ye `boot.img` yazıyordu; artık imkânsız.
+
+```bash
+# Yalnızca gerekli parçayı yaz (örnek: recovery'yi stok AP'den geri al)
+j106f-flash incele AP_J106FJVU0ARH1_...tar.md5 --bolum recovery
+j106f-flash flash  AP_J106FJVU0ARH1_...tar.md5 --bolum recovery --gercek
+```
+
+`BL` (bootloader) ve `CP` (modem) bölümleri **gövde korumasının yasak
+listesindedir**; sarmalayıcı bunları yazmaz. Bootloader'a dokunmak, kurtarma
+yolu kalmaması demektir. Bu bölümler için ayrı ve açık bir kullanıcı kararı
+gerekir.
 
 ## Yasak bölümler
 

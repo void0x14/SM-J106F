@@ -410,24 +410,41 @@ async function flash(imaj, bolum, gercek) {
 
   // heimdall CLI arsiv ACMAZ. Tar destegi yalnizca heimdall-frontend'dedir
   // (olculdu: /usr/bin/heimdall ikilisinde 'ustar'/'tar'/'extract' dizeleri
-  // yok; heimdall-frontend'de 'temporary TAR file' var). Bu yuzden
-  // recovery.tar'i oldugu gibi yazmak bolume tar arsivini yazar, imaji degil.
-  // .tar/.tar.md5 verilirse icindeki imaji cikarip ONU yazariz.
+  // yok; ldd bagimliliklarinda arsiv kutuphanesi yok; kaynak FlashAction.cpp
+  // openFiles() dosyayi fopen(...,"rb") ile acar, arsiv acma kodu YOKTUR).
+  // Bu yuzden tar'i oldugu gibi yazmak bolume tar arsivini yazar, imaji degil.
+  //
+  // KRITIK: tar icinden "ilk .img" secmek YANLIS imaji yazar. Olculdu:
+  // AP tar uyeleri sirayla boot.img, recovery.img, system.img gelir; eski
+  // kod .find(endsWith(".img")) ile HER bolum icin boot.img seciyordu.
+  // Yani '--bolum recovery' RECOVERY bolumune boot.img yazardi. Bu artik
+  // imkansiz: bolum -> beklenen tam dosya adi policy'den gelir, ad birebir
+  // eslesmezse REDDEDILIR. Tahmin yok.
   let yazilacakYol = yol
   let gecici = null
   let geciciDir = null
   if (yol.toLowerCase().endsWith(".tar") || yol.toLowerCase().endsWith(".tar.md5")) {
-    const uye = (execFileSync("tar", ["-tf", yol], { encoding: "utf8" }) || "")
+    const beklenen = policy.tar_uye_adi?.[bolum]
+    if (!beklenen) {
+      dur(`Bu bolum icin tar uye eslemesi tanimli degil: ${bolum}\n` +
+          `     policy.tar_uye_adi icinde '${bolum}' yok. Tahmin etmek yerine reddedilir.`)
+    }
+    const uyeler = (execFileSync("tar", ["-tf", yol], { encoding: "utf8" }) || "")
       .split("\n").map((s) => s.trim()).filter(Boolean)
-      .find((s) => s.toLowerCase().endsWith(".img"))
-    if (!uye) dur("Tar arsivinde .img dosyasi yok.")
+    // Birebir ad eslesmesi (yol bileseni olabilir: 'a/b/recovery.img').
+    const uye = uyeler.find((s) => path.basename(s).toLowerCase() === beklenen.toLowerCase())
+    if (!uye) {
+      dur(`Tar arsivinde '${beklenen}' yok — bu tar ${bolum} bolumu icin degil.\n` +
+          `     Arsivdeki dosyalar: ${uyeler.slice(0, 10).join(", ")}${uyeler.length > 10 ? " …" : ""}\n` +
+          `     Beklenen tam ad: ${beklenen} (policy.tar_uye_adi.${bolum})`)
+    }
     geciciDir = await fsp.mkdtemp(path.join(os.tmpdir(), "govde-"))
     execFileSync("tar", ["-xf", yol, "-C", geciciDir, uye])
     gecici = path.join(geciciDir, path.basename(uye))
     yazilacakYol = gecici
     const cikBoy = fs.statSync(gecici).size
     if (cikBoy > pitBoy) dur(`Tar icindeki imaj bolume SIGMAZ: ${cikBoy} > ${pitBoy} bayt.`)
-    gecti(`Kapı 3c — tar acildi: ${uye} ${cikBoy} bayt`)
+    gecti(`Kapı 3c — tar acildi: ${uye} ${cikBoy} bayt (bolum: ${bolum})`)
   }
 
   // son kontrol: imaj hâlâ aynı mı

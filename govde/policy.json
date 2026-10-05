@@ -41,6 +41,14 @@
 
   "yasak_bolumler": ["bootloader", "uboot", "sbl1", "spl", "efs", "modemst1", "modemst2", "prodnv", "nvdata", "persist"],
 
+  "_tar_uye_adi_aciklama": "Samsung stok firmware tar arsivleri COK UYELIDIR ve uyeler alfabetik/dosya sistemi sirasina gore gelir. Olculdu (AP_J106FJVU0ARH1...tar.md5): 'boot.img', 'recovery.img', 'system.img'. Tar icinden 'ilk .img' secmek YANLIS imaji YANLIS bolume yazar (--bolum recovery verilince boot.img secilirdi). Bu yuzden her mantiksal bolum icin BEKLENEN tam dosya adi burada tutulur; ad birebir eslesmezse flash REDDEDILIR, tahmin edilmez. CP tar (CP_J106FJVU0ARB3...tar.md5) uyeleri: SPRDWDSP.img 1695000, SPRDCP.img 12379336, SPRDGDSP.img 3015680, SPRDLTEDSP.img 1573888. l_modem PIT boyu 16777216 -> SPRDCP.img (12379336) SIGAR; SPRDCP 'communication processor' = modem ana imaji. Bu esleme ad+boyuttan CIKARILDI, cihazda yazilarak dogrulanmadi.",
+  "tar_uye_adi": {
+    "recovery": "recovery.img",
+    "boot": "boot.img",
+    "system": "system.img",
+    "modem": "SPRDCP.img"
+  },
+
   "_bolum_boyut_ust_siniri_aciklama": "Inceleme yolunda kaba bir ust sinir. GERCEK sinir cihazin PIT tablosudur ve flash yolunda uygulanir (Kapı 3b: imaj <= PIT boyutu). Buradaki degerler cihazin OLCULEN bolum boyutlaridir (docs/pit/, bayt -> MiB): RECOVERY 20971520 -> 20, KERNEL 20971520 -> 20, SYSTEM 2902458368 -> 2768, l_modem 16777216 -> 16. Bolumden KUCUK deger, bolume SIGAN dogru imaji incelemede reddeder. scripts/govde-test.sh her kosuda gercek PIT ile karsilastirir.",
   "bolum_boyut_ust_siniri_mb": {
     "recovery": 20,
