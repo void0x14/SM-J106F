@@ -1,0 +1,79 @@
+#!/bin/bash
+# heimdall KAPISI — OKUMA serbest, YAZMA gerçek terminal + yazılı onay ister.
+#
+# Kurulum:
+#   /usr/libexec/heimdall/heimdall.elf   gerçek ikili (0700 root:root)
+#   /usr/bin/heimdall                    bu kapı (0755)
+#   /usr/libexec/heimdall/heimdall.real  bu kapı (0755)
+#
+# Neden: `heimdall flash` hızlıdır ve geri dönüşü zordur. Ajan araçları
+# stdin'i "ignore" ile açar; ölçüldü: `tty` -> "not a tty". Yani ajan elinden
+# gelen HER çağrı TTY'sizdir ve yazma yolu burada kesilir. Kullanıcı kendi
+# terminalinde yazabilir.
+#
+# Her çağrı journald'a düşer:  journalctl -t heimdall-kapi
+#
+# SINIR (dürüst): Bu makinede `void0x14 ALL=(ALL) NOPASSWD: ALL` var. Yani
+# root yetkisi olan biri gerçek ikiliyi (heimdall.elf) doğrudan çağırabilir.
+# Bu kapı KAZARA ve HIZLI yazmayı engeller; kötü niyetli root'u engellemez.
+# O katmanın karşılığı harness kapısıdır: ~/.grok/hooks/govde-koruma.sh
+
+set -u
+ELF="/usr/libexec/heimdall/heimdall.elf"
+ETIKET="heimdall-kapi"
+
+izinli() {
+  case "$1" in
+    detect|print-pit|download-pit|info|version|help|--help|-h) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+EYLEM=""
+for a in "$@"; do
+  case "$a" in
+    --*|-*) continue ;;
+    *) EYLEM="$a"; break ;;
+  esac
+done
+
+TTY="yok"; { [ -t 0 ] || [ -t 1 ] || [ -t 2 ]; } && TTY="var"
+
+# Eylem yok ya da okuma -> serbest
+if [ -z "$EYLEM" ] || izinli "$EYLEM"; then
+  logger -t "$ETIKET" "IZIN eylem=${EYLEM:-yok} tty=$TTY uid=$(id -u) args=[$*]"
+  exec sudo -n "$ELF" "$@"
+fi
+
+# YAZMA -> TTY sart
+if [ "$TTY" = "yok" ]; then
+  logger -t "$ETIKET" "RED-TTY-YOK $EYLEM uid=$(id -u) args=[$*]"
+  {
+    echo
+    echo "  ⛔ heimdall YAZMA KAPISI — GERÇEK TERMİNAL YOK"
+    echo "  ─────────────────────────────────────────────"
+    echo "  İstenen eylem : $EYLEM"
+    echo "  Bu çağrı bir ajan/otomasyon ortamından geliyor (TTY yok)."
+    echo "  Yazma yalnızca kullanıcının KENDİ terminalinde yapılabilir."
+    echo "  Cihaza HİÇBİR ŞEY yazılmadı."
+    echo "  Kayıt: journalctl -t heimdall-kapi"
+    echo
+  } >&2
+  exit 13
+fi
+
+# YAZMA -> yazılı onay
+echo
+echo "  ⚠ heimdall YAZMA"
+echo "  eylem: $EYLEM"
+echo "  args : $*"
+echo
+read -r -p "  Onaylamak için tam olarak 'YAZ' yaz: " ONAY < /dev/tty
+if [ "$ONAY" != "YAZ" ]; then
+  logger -t "$ETIKET" "RED-ONAY-YOK $EYLEM uid=$(id -u)"
+  echo "  Onay verilmedi. Cihaza hiçbir şey yazılmadı." >&2
+  exit 13
+fi
+
+logger -t "$ETIKET" "ONAYLI-YAZMA $EYLEM uid=$(id -u) args=[$*]"
+exec sudo -n "$ELF" "$@"
