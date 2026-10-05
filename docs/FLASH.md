@@ -161,8 +161,13 @@ TWRP açılınca **hemen** yedek. İki aşama, ikisi de zorunlu.
 
 - `Backup` → `Select Partitions to Back Up`
 - İşaretle: **EFS**, **Preload**, **Product Info**
-- Storage: **Micro SDcard** (dahili depolama değil — `Format Data` onu siler)
+- Storage: **Internal Storage** (SD kart yoksa bu; çıktı sonra `adb pull` ile
+  bilgisayara çekilir, 6c)
 - `Swipe to Back Up`
+
+> SD kart zorunlu değildir. Kart yoksa dahili depolamaya alınır ve hemen
+> bilgisayara çekilir. `Format Data` dahili depolamayı sildiği için, ROM
+> kurmadan **önce** 6c adımı mutlaka yapılır.
 
 ### 6b. Ham `dd` — TWRP'nin yedeklemediği bölümler
 
@@ -172,14 +177,18 @@ kapsamı dışındadır.** Bunlar RF kalibrasyonu ve IMEI verisidir; kaybolursa
 şebeke bir daha gelmez ve geri yüklemenin yolu yoktur. Menüde görünmelerini
 beklemeden, elle alınır.
 
+Bu bölümler **doğrudan bilgisayara akıtılır** (`adb exec-out`). Telefonda SD
+kart ya da dahili depolama gerekmez; hiçbir şey telefonda kalmaz:
+
 ```bash
-# TWRP açıkken, bilgisayardan. Okuma işlemidir; hiçbir şey yazılmaz.
-adb shell 'for B in l_modem l_fixnv2 prodnv efs PERSDATA PARAM; do
+# TWRP açıkken, bilgisayardan. Okuma işlemidir; telefona hiçbir şey yazılmaz.
+mkdir -p ~/j106f-yedek
+for B in l_modem l_fixnv2 prodnv efs PERSDATA PARAM; do
   D=/dev/block/platform/sdio_emmc/by-name/$B
-  SZ=$(blockdev --getsize64 $D)
-  echo "$B: $SZ bayt"
-  dd if=$D of=/external_sd/$B.img bs=4096
-done'
+  # exec-out ikili çıktıyı aynen taşır (shell'in CRLF çevirisi yok).
+  adb exec-out "dd if=$D bs=4096 2>/dev/null" > ~/j106f-yedek/$B.img
+  echo "$B: $(stat -c %s ~/j106f-yedek/$B.img) bayt"
+done
 ```
 
 Boyut, cihazın gerçek PIT'inden okunur — sabit değer varsayılmaz. Ölçülmüş
@@ -194,16 +203,17 @@ değerler (`docs/PIT-GERCEK.md`):
 | `PERSDATA` | 9.437.184 B (9 MiB) | kalıcı veri |
 | `PARAM` | 2.097.152 B (2 MiB) | boot parametreleri |
 
-### 6c. Bilgisayara çek
+### 6c. TWRP menü yedeğini bilgisayara çek
+
+Yalnızca 6a'da dahili depolamaya yedek alındıysa gerekir (SD kart yoksa):
 
 ```bash
 mkdir -p ~/j106f-yedek
-adb pull /external_sd/TWRP/BACKUPS/ ~/j106f-yedek/TWRP/ 2>/dev/null
-for B in l_modem l_fixnv2 prodnv efs PERSDATA PARAM; do
-  adb pull /external_sd/$B.img ~/j106f-yedek/ 2>/dev/null
-done
+adb pull /sdcard/TWRP/BACKUPS/ ~/j106f-yedek/TWRP/ 2>/dev/null
 ls -la ~/j106f-yedek/
 ```
+
+> 6b'deki `exec-out` yedekleri zaten bilgisayarda; bu adım onlar için gerekmez.
 
 ## 7. Yedeği doğrula
 

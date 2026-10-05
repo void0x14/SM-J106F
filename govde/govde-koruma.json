@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "run_terminal_command|Bash|bash|shell|exec_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.grok/hooks/govde-koruma.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
